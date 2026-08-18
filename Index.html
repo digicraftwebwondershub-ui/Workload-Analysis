@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <base target="_top">
+    <title>Workload Analysis System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      .loader { border-top-color: #4f46e5; -webkit-animation: spinner 1.5s linear infinite; animation: spinner 1.5s linear infinite; }
+      @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      .view-mode-disabled { pointer-events: none; opacity: 0.7; background-color: #f8fafc; }
+      .modal-bg { background-color: rgba(0, 0, 0, 0.5); }
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: #f1f5f9; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+  </head>
+  
+  <body class="bg-slate-50 text-slate-800 font-sans antialiased flex h-screen overflow-hidden">
+
+    <aside class="w-64 bg-indigo-700 text-white flex flex-col shadow-xl z-20 flex-shrink-0 transition-all duration-300">
+      <div class="h-16 flex items-center justify-center border-b border-indigo-600 px-4">
+        <h1 class="font-bold text-lg tracking-wide text-center leading-tight">Workload Analysis<br><span class="text-xs text-indigo-300 font-medium">Enterprise System</span></h1>
+      </div>
+      
+      <nav class="flex-1 overflow-y-auto py-6 px-3 space-y-2">
+        <button onclick="switchTab('entry')" id="tabBtn-entry" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-colors bg-indigo-800 text-white shadow-inner">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>Data Entry</button>
+        <button onclick="switchTab('view')" id="tabBtn-view" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-indigo-100 hover:bg-indigo-600 hover:text-white">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>View Data</button>
+        <button onclick="switchTab('directory')" id="tabBtn-directory" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-indigo-100 hover:bg-indigo-600 hover:text-white">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>Process Directory</button>
+        <button onclick="switchTab('overlap')" id="tabBtn-overlap" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-indigo-100 hover:bg-indigo-600 hover:text-white">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>Process Overlap</button>
+        <button onclick="switchTab('optimization')" id="tabBtn-optimization" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-indigo-100 hover:bg-indigo-600 hover:text-white">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>Optimization Engine</button>
+        <button onclick="switchTab('reports')" id="tabBtn-reports" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-indigo-100 hover:bg-indigo-600 hover:text-white">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"></path></svg>Reports</button>
+        <button onclick="switchTab('approvals')" id="tabBtn-approvals" class="hidden w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-indigo-100 hover:bg-indigo-600 hover:text-white">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>Approvals Pipeline</button>
+      </nav>
+    </aside>
+
+    <div class="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 relative">
+      <header class="h-16 bg-white shadow-sm border-b border-slate-200 flex items-center justify-between px-6 z-10 flex-shrink-0">
+        <h2 class="text-xl font-bold text-slate-800" id="currentTabTitle">Data Entry</h2>
+        <div id="userBadge" class="hidden flex items-center gap-3">
+          <div class="text-right">
+            <div id="userEmailDisplay" class="text-sm font-semibold text-slate-800 leading-tight">Loading...</div>
+            <div id="userRoleDisplay" class="text-xs text-indigo-600 uppercase tracking-wide font-bold"></div>
+          </div>
+          <div class="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 shadow-inner">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+          </div>
+        </div>
+      </header>
+
+      <div id="loader" class="flex flex-col items-center justify-center h-full">
+        <div class="loader ease-linear rounded-full border-4 border-slate-200 h-12 w-12 mb-4"></div>
+        <p class="text-slate-500 font-medium" id="loaderText">Connecting to Database...</p>
+      </div>
+
+      <div id="appContainer" class="hidden flex-1 overflow-y-auto flex flex-col relative">
+        <div class="p-6 md:p-8 flex-1 w-full max-w-7xl mx-auto">
+          
+          <main id="section-view" class="hidden">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between"><div><p class="text-xs text-slate-500 uppercase font-semibold tracking-wider">Filled Headcount</p><p id="scorecard-manpower" class="text-4xl font-bold text-indigo-600">0</p></div></div>
+              <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between"><div><p class="text-xs text-slate-500 uppercase font-semibold tracking-wider">Vacant Positions</p><p id="scorecard-vacant" class="text-4xl font-bold text-rose-500">0</p></div></div>
+              <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between"><div><p class="text-xs text-slate-500 uppercase font-semibold tracking-wider">Required Manpower (FTE)</p><p id="scorecard-fte" class="text-4xl font-bold text-emerald-600">0.00</p></div></div>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+              <h2 class="text-lg font-semibold text-slate-700 mb-4 border-b pb-2 flex justify-between items-center">
+                <span>Filter Workload Records</span><button onclick="fetchViewData()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded text-sm font-medium transition-colors">Refresh Data</button>
+              </h2>
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Division</label><select id="v-division" class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm"><option value="">All Divisions</option></select></div>
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Group</label><select id="v-group" disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm disabled:bg-slate-50"><option value="">All Groups</option></select></div>
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Department</label><select id="v-department" disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm disabled:bg-slate-50"><option value="">All Departments</option></select></div>
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Section</label><select id="v-section" disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm disabled:bg-slate-50"><option value="">All Sections</option></select></div>
+              </div>
+              <button onclick="fetchViewData()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded font-medium text-sm transition-colors">Apply Filters</button>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <table class="min-w-full text-left text-sm">
+                <thead class="bg-slate-50 border-b border-slate-200 text-slate-600"><tr><th class="px-6 py-3 font-semibold">Employee / Position</th><th class="px-6 py-3 font-semibold">Division / Dept</th><th class="px-6 py-3 font-semibold">Main Processes</th><th class="px-6 py-3 font-semibold">Total FTE</th><th class="px-6 py-3 font-semibold text-right">Actions</th></tr></thead>
+                <tbody id="viewDataTable" class="divide-y divide-slate-100"><tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">Click "Apply Filters" to load data.</td></tr></tbody>
+              </table>
+            </div>
+          </main>
+
+          <main id="section-directory" class="hidden">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center">
+              <div><h2 class="text-lg font-semibold text-slate-700">Process Directory</h2><p class="text-sm text-slate-500">Monitor and audit individual tasks grouped by their Main Process.</p></div>
+              <button onclick="fetchDirectoryData()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded font-medium text-sm transition-colors">Refresh Directory</button>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Division</label><select id="d-division" class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm"><option value="">All Divisions</option></select></div>
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Group</label><select id="d-group" disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm disabled:bg-slate-50"><option value="">All Groups</option></select></div>
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Department</label><select id="d-department" disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm disabled:bg-slate-50"><option value="">All Departments</option></select></div>
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Section</label><select id="d-section" disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm disabled:bg-slate-50"><option value="">All Sections</option></select></div>
+              </div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <table class="min-w-full text-left text-sm border-collapse">
+                <thead class="bg-indigo-50 border-b-2 border-indigo-200 text-indigo-800">
+                  <tr>
+                    <th class="px-4 py-3 font-semibold uppercase text-xs tracking-wider">Main Processes</th>
+                    <th class="px-4 py-3 font-semibold uppercase text-xs tracking-wider">Step-By-Step Tasks / Activities</th>
+                    <th class="px-4 py-3 font-semibold uppercase text-xs tracking-wider text-center">VA / NVA</th>
+                    <th class="px-4 py-3 font-semibold uppercase text-xs tracking-wider">Name / Position</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase">Trans Count</th>
+                    <th class="px-4 py-3 font-semibold uppercase text-xs tracking-wider text-right">Time Std</th>
+                  </tr>
+                </thead>
+                <tbody id="directoryTableBody" class="divide-y divide-slate-100 bg-white">
+                  <tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">Click "Refresh Directory" to load tasks.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </main>
+
+          <main id="section-overlap" class="hidden">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+              <h2 class="text-lg font-semibold text-slate-700 mb-4 border-b pb-2 flex justify-between items-center">
+                <span>Process Overlap & Redundancy Mapping</span><button onclick="fetchOverlapData()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded text-sm font-medium transition-colors">Run Overlap Analysis</button>
+              </h2>
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Division</label><select id="o-division" class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm"><option value="">All Divisions</option></select></div>
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Group</label><select id="o-group" disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm disabled:bg-slate-50"><option value="">All Groups</option></select></div>
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Department</label><select id="o-department" disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm disabled:bg-slate-50"><option value="">All Departments</option></select></div>
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Section</label><select id="o-section" disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm disabled:bg-slate-50"><option value="">All Sections</option></select></div>
+              </div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <table class="min-w-full text-left text-sm">
+                <thead class="bg-slate-50 border-b border-slate-200 text-slate-600"><tr><th class="px-6 py-3 font-semibold">Duplicated Process Name</th><th class="px-6 py-3 font-semibold">Process Level</th><th class="px-6 py-3 font-semibold text-center">Involved</th><th class="px-6 py-3 font-semibold text-right">Actions</th></tr></thead>
+                <tbody id="overlapDataTable" class="divide-y divide-slate-100"><tr><td colspan="4" class="px-6 py-8 text-center text-slate-400">Click "Run Overlap Analysis" to detect redundant tasks.</td></tr></tbody>
+              </table>
+            </div>
+          </main>
+
+          <main id="section-optimization" class="hidden">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center">
+              <div><h2 class="text-lg font-semibold text-slate-700">Workforce Optimization Engine</h2><p class="text-sm text-slate-500">AI-driven insights for workload redistribution and FTE efficiency improvements.</p></div>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Division</label><select id="opt-division" class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm"><option value="">All Divisions</option></select></div>
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Group</label><select id="opt-group" disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm disabled:bg-slate-50"><option value="">All Groups</option></select></div>
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Department</label><select id="opt-department" disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm disabled:bg-slate-50"><option value="">All Departments</option></select></div>
+                <div><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Section</label><select id="opt-section" disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none text-sm disabled:bg-slate-50"><option value="">All Sections</option></select></div>
+              </div>
+              <button onclick="fetchOptimizationData()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded font-medium text-sm transition-colors">Run AI Analysis</button>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <h3 class="text-md font-bold text-slate-700 border-b pb-2 mb-4 flex items-center gap-2"><span class="text-indigo-500">⚡</span> Vacancy Redistribution Candidates</h3>
+                <div id="opt-redistribution-container" class="space-y-4"><p class="text-sm text-slate-400 italic">Select filters and run analysis to view redistribution targets.</p></div>
+              </div>
+              <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <h3 class="text-md font-bold text-slate-700 border-b pb-2 mb-4 flex items-center gap-2"><span class="text-emerald-500">🎯</span> Efficiency & Automation Targets</h3>
+                <div id="opt-efficiency-container" class="space-y-4"><p class="text-sm text-slate-400 italic">Select filters and run analysis to view efficiency targets.</p></div>
+              </div>
+            </div>
+          </main>
+
+          <main id="section-reports" class="hidden">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center">
+              <div><h2 class="text-lg font-semibold text-slate-700">Executive Analytics</h2><p class="text-sm text-slate-500">Visual breakdowns of workforce capacity and task valuation.</p></div>
+              <button onclick="generateReports()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded font-medium text-sm transition-colors">Generate Global Reports</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><h3 class="text-sm font-bold text-slate-600 uppercase tracking-wide mb-4 text-center">Value Distribution (VA / NVA / BVA)</h3><div class="relative h-64 w-full"><canvas id="valuePieChart"></canvas></div></div>
+              <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><h3 class="text-sm font-bold text-slate-600 uppercase tracking-wide mb-4 text-center">Headcount vs FTE Required</h3><div class="relative h-64 w-full"><canvas id="fteBarChart"></canvas></div></div>
+            </div>
+          </main>
+
+          <main id="section-approvals" class="hidden">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center">
+              <div><h2 class="text-lg font-semibold text-slate-700">Approvals Pipeline & History</h2><p class="text-sm text-slate-500">Review pending capacity requests and reference your historical approvals.</p></div>
+              <button onclick="fetchApprovals()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded text-sm font-medium transition-colors">Refresh Pipeline</button>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <table class="min-w-full text-left text-sm">
+                <thead class="bg-slate-50 border-b border-slate-200 text-slate-600"><tr><th class="px-6 py-3 font-semibold">Employee / Position</th><th class="px-6 py-3 font-semibold">Division / Dept</th><th class="px-6 py-3 font-semibold">Status</th><th class="px-6 py-3 font-semibold">Requested FTE</th><th class="px-6 py-3 font-semibold text-right">Action</th></tr></thead>
+                <tbody id="approvalsTableBody" class="divide-y divide-slate-100"><tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">Loading pipeline...</td></tr></tbody>
+              </table>
+            </div>
+          </main>
+
+          <main id="section-entry">
+            <form id="workloadForm" class="space-y-6 pb-24">
+              
+              <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <div class="flex justify-between items-center mb-4 border-b pb-2">
+                  <h2 id="entryFormTitle" class="text-lg font-semibold text-slate-700">1. Organizational Details</h2>
+                  <div class="flex gap-2">
+                    <span id="viewBadge" class="hidden bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded border border-blue-200 font-bold tracking-wider uppercase flex items-center gap-1">View Only Mode</span>
+                    <span id="editBadge" class="hidden bg-amber-100 text-amber-700 text-xs px-2 py-1 rounded border border-amber-200 font-bold tracking-wider uppercase">Edit Mode Active</span>
+                  </div>
+                </div>
+                
+                <div id="orgFieldsWrapper" class="space-y-6">
+                  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div><label class="block text-sm font-medium text-slate-600 mb-1">Employee Name <span class="text-xs text-slate-400 font-normal">(Leave blank if Vacant)</span></label><input type="text" id="employeeName" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none transition-all"></div>
+                    <div><label class="block text-sm font-medium text-slate-600 mb-1">Position Title <span class="text-red-500">*</span></label><input type="text" id="position" required class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none transition-all"></div>
+                    <div><label class="block text-sm font-medium text-slate-600 mb-1">Work Location <span class="text-red-500">*</span></label><select id="workLocation" required class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none bg-white"><option value="" disabled selected>Loading...</option></select></div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-4 bg-slate-50 rounded-lg border border-slate-100">
+                    <div><label class="block text-sm font-medium text-slate-600 mb-1">Employment Type <span class="text-red-500">*</span></label>
+                      <select id="empType" required onchange="toggleEmpFields()" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none bg-white"><option value="" disabled selected>Select Type</option><option value="Direct">Direct</option><option value="Jobcon">Jobcon</option></select></div>
+                    <div id="agencyContainer" class="hidden"><label class="block text-sm font-medium text-slate-600 mb-1">Agency Name <span class="text-red-500">*</span></label>
+                      <select id="agencyName" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none bg-white"><option value="" disabled selected>Select Agency</option><option value="SPD">SPD</option><option value="Klassic">Klassic</option><option value="Omniskills">Omniskills</option><option value="Premiere">Premiere</option></select></div>
+                    <div><label class="block text-sm font-medium text-slate-600 mb-1">Employment Status <span class="text-red-500">*</span></label>
+                      <select id="empStatus" required onchange="toggleEmpFields()" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none bg-white"><option value="" disabled selected>Select Status</option><option value="Full-Time">Full-Time</option><option value="Project-Based">Project-Based</option></select></div>
+                    <div id="dateContainer" class="hidden col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-2 gap-6 mt-2">
+                      <div><label class="block text-sm font-medium text-slate-600 mb-1">Start Date <span class="text-red-500">*</span></label><input type="date" id="startDate" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none transition-all"></div>
+                      <div><label class="block text-sm font-medium text-slate-600 mb-1">End Date <span class="text-red-500">*</span></label><input type="date" id="endDate" class="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none transition-all"></div>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                    <div><label class="block text-sm font-medium text-slate-600 mb-1">FWA <span class="text-red-500">*</span></label><select id="fwa" required class="w-full px-3 py-2 border border-slate-300 rounded outline-none bg-white"><option value="" disabled selected>Select</option><option value="22 DAYS">22 Days / Mo</option><option value="24 DAYS">24 Days / Mo</option><option value="26 DAYS">26 Days / Mo</option></select></div>
+                    <div><label class="block text-sm font-medium text-slate-600 mb-1">Division <span class="text-red-500">*</span></label><select id="division" required class="w-full px-3 py-2 border border-slate-300 rounded outline-none bg-white"><option value="">Loading...</option></select></div>
+                    <div><label class="block text-sm font-medium text-slate-600 mb-1">Group <span class="text-red-500">*</span></label><select id="group" required disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none bg-slate-50"><option value="">Select Group</option></select></div>
+                    <div><label class="block text-sm font-medium text-slate-600 mb-1">Department <span class="text-red-500">*</span></label><select id="department" required disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none bg-slate-50"><option value="">Select Department</option></select></div>
+                    <div><label class="block text-sm font-medium text-slate-600 mb-1">Section <span class="text-red-500">*</span></label><select id="section" required disabled class="w-full px-3 py-2 border border-slate-300 rounded outline-none bg-slate-50"><option value="">Select Section</option></select></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <div class="mb-4 border-b pb-2">
+                  <h2 class="text-lg font-semibold text-slate-700">2. Department Level KPI</h2>
+                  <p class="text-xs text-slate-500 mt-1">Please enter at least 1 and up to a maximum of 5 Departmental KPIs (e.g., Sales Targets, Production Targets, OEE, etc.).</p>
+                </div>
+                <div id="kpiFieldsWrapper" class="space-y-3">
+                  <div class="flex items-center gap-3"><span class="bg-indigo-100 text-indigo-700 font-bold px-3 py-2 rounded text-sm">KPI 1</span><input type="text" id="kpi1" required placeholder="Primary KPI (Required)" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg outline-none focus:border-indigo-500"></div>
+                  <div class="flex items-center gap-3"><span class="bg-slate-100 text-slate-500 font-bold px-3 py-2 rounded text-sm">KPI 2</span><input type="text" id="kpi2" placeholder="Optional KPI" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg outline-none focus:border-indigo-500"></div>
+                  <div class="flex items-center gap-3"><span class="bg-slate-100 text-slate-500 font-bold px-3 py-2 rounded text-sm">KPI 3</span><input type="text" id="kpi3" placeholder="Optional KPI" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg outline-none focus:border-indigo-500"></div>
+                  <div class="flex items-center gap-3"><span class="bg-slate-100 text-slate-500 font-bold px-3 py-2 rounded text-sm">KPI 4</span><input type="text" id="kpi4" placeholder="Optional KPI" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg outline-none focus:border-indigo-500"></div>
+                  <div class="flex items-center gap-3"><span class="bg-slate-100 text-slate-500 font-bold px-3 py-2 rounded text-sm">KPI 5</span><input type="text" id="kpi5" placeholder="Optional KPI" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg outline-none focus:border-indigo-500"></div>
+                </div>
+              </div>
+
+              <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <h2 class="text-lg font-semibold text-slate-700 mb-4 border-b pb-2">3. Workload Breakdown</h2>
+                <div id="processesContainer" class="space-y-6 mb-6"></div>
+                <button type="button" id="addMainBtn" onclick="addMainProcess()" class="w-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border-2 border-dashed border-indigo-300 py-4 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg> + Add Main Process</button>
+              </div>
+            </form>
+          </main>
+        </div>
+
+        <div id="summaryFooter" class="hidden sticky bottom-0 w-full bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] p-4 z-50 flex-shrink-0">
+          <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4 px-4 sm:px-6 lg:px-8">
+            <div class="flex gap-8">
+              <div><p class="text-xs text-slate-500 uppercase font-semibold tracking-wider">Total Annual Hours</p><p id="globalTotalHours" class="text-2xl font-bold text-slate-800">0.00</p></div>
+              <div><p class="text-xs text-slate-500 uppercase font-semibold tracking-wider">Position FTE</p><p id="globalFTE" class="text-2xl font-bold text-indigo-600">0.00</p></div>
+            </div>
+            <div id="standardFooterActions" class="flex gap-4">
+              <button type="button" onclick="resetForm()" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-6 py-3 rounded-lg font-semibold shadow-sm transition-all flex items-center gap-2">Clear Form</button>
+              <button type="submit" form="workloadForm" id="saveSubmitBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-lg font-semibold shadow-md transition-all flex items-center gap-2">Save Workload</button>
+            </div>
+            <div id="viewFooterActions" class="hidden flex gap-4">
+              <button type="button" onclick="goBackToView()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-3 rounded-lg font-semibold shadow-sm transition-all flex items-center gap-2">Back to List</button>
+              <button type="button" onclick="switchToEditMode()" class="bg-amber-500 hover:bg-amber-600 text-white px-8 py-3 rounded-lg font-semibold shadow-md transition-all flex items-center gap-2">Enable Editing Mode</button>
+            </div>
+          </div>
+        </div>
+
+      </div> 
+    </div> 
+
+    <div id="overlapModal" class="hidden fixed inset-0 z-[100] modal-bg flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div class="p-6 border-b border-slate-200 flex justify-between items-center">
+          <div><h3 class="text-lg font-bold text-slate-800" id="modalTitle">Process Details</h3><p class="text-sm text-slate-500">Total time spent by overlapping positions</p></div>
+          <button onclick="closeModal()" class="text-slate-400 hover:text-red-500"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        <div class="p-6 overflow-y-auto"><table class="min-w-full text-left text-sm"><thead class="bg-slate-50 text-slate-600 border-b border-slate-200"><tr><th class="px-4 py-2">Employee / Position</th><th class="px-4 py-2 text-right">Annual Time Spent (Hrs)</th></tr></thead><tbody id="modalTableBody" class="divide-y divide-slate-100"></tbody></table></div>
+      </div>
+    </div>
+
+    <div id="approvalActionModal" class="hidden fixed inset-0 z-[100] modal-bg flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-5xl flex flex-col h-[90vh]">
+        <div class="p-6 border-b border-slate-200 flex justify-between items-center bg-white flex-shrink-0">
+          <div><h3 class="text-lg font-bold text-slate-800" id="approvalModalTitle">Review Workload Request</h3><p class="text-sm text-indigo-600 font-bold" id="approvalModalFTE">0.00 FTE Requested</p></div>
+          <button onclick="closeApprovalModal()" class="text-slate-400 hover:text-red-500"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        <div class="flex-1 overflow-hidden bg-slate-50 flex flex-col lg:flex-row p-6 gap-6 min-h-0">
+          <div class="flex-1 flex flex-col min-h-0"><h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200 pb-2 mb-4 flex-shrink-0">Requested Workload</h4><div id="approvalModalContent" class="flex-1 overflow-y-auto space-y-4 pr-2"></div></div>
+          <div class="flex-1 flex flex-col min-h-0 border-t lg:border-t-0 lg:border-l border-slate-200 lg:pl-6 pt-4 lg:pt-0"><h4 class="text-xs font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200 pb-2 mb-4 flex-shrink-0">Existing Approved Tasks in Department</h4><div id="approvalModalContext" class="flex-1 overflow-y-auto space-y-4 pr-2"></div></div>
+        </div>
+        <div id="approvalActionSection" class="p-6 border-t border-slate-200 bg-white flex-shrink-0 hidden">
+          <label class="block text-sm font-medium text-slate-600 mb-1">Approver Remarks</label>
+          <textarea id="approvalRemarks" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded outline-none focus:border-indigo-500 mb-4" placeholder="Strictly required if you are rejecting this request..."></textarea>
+          <div class="flex justify-end gap-4">
+            <button onclick="submitApprovalAction('Reject')" class="bg-rose-100 text-rose-700 hover:bg-rose-200 px-6 py-2 rounded font-bold transition-colors">Reject Request</button>
+            <button onclick="submitApprovalAction('Approve')" class="bg-emerald-600 text-white hover:bg-emerald-700 px-6 py-2 rounded font-bold shadow-md transition-colors">Authorize & Approve</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="toastContainer" class="fixed top-4 right-4 z-50 flex flex-col gap-2"></div>
+    <?!= include('JavaScript'); ?>
+  </body>
+</html>
