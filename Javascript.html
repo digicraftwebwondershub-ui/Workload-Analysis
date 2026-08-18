@@ -174,13 +174,16 @@
     const tbody = document.getElementById('viewDataTable'); if(!tbody) return;
     tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-slate-500">Loading data...</td></tr>`;
     const filters = { division: document.getElementById('v-division').value, group: document.getElementById('v-group').value, department: document.getElementById('v-department').value, section: document.getElementById('v-section').value };
-    google.script.run.withSuccessHandler(res => { if(res.success) renderViewTable(res.data); else showError(res); }).getSavedPositions(filters);
+    google.script.run.withSuccessHandler(res => { if(res.success) renderViewTable(res.data, res.approvedHc); else showError(res); }).getSavedPositions(filters);
   }
 
-  function renderViewTable(data) {
+  function renderViewTable(data, approvedHc = 0) {
     const tbody = document.getElementById('viewDataTable');
     const validData = data.filter(d => d.approvalStatus === 'Approved');
     
+    if (document.getElementById('scorecard-approved-hc')) {
+      document.getElementById('scorecard-approved-hc').innerText = approvedHc || 0;
+    }
     const actualHeadcount = validData.filter(d => d.employeeName.trim() !== "").length; 
     document.getElementById('scorecard-manpower').innerText = actualHeadcount;
     const vacantHeadcount = validData.filter(d => d.employeeName.trim() === "").length; 
