@@ -68,7 +68,20 @@
     cachedOrgData = res.data.orgChart; cachedLocations = res.data.locations; currentUser = res.data.userProfile; 
     document.getElementById('loader').style.display = 'none'; document.getElementById('appContainer').classList.remove('hidden'); switchTab('entry');
     const userBadge = document.getElementById('userBadge');
-    if (userBadge) { userBadge.classList.remove('hidden'); document.getElementById('userEmailDisplay').innerText = currentUser.email; document.getElementById('userRoleDisplay').innerText = currentUser.role === 'Admin' ? 'Administrator' : (currentUser.scope.department || 'Restricted Scope'); }
+    if (userBadge) {
+      userBadge.classList.remove('hidden');
+      document.getElementById('userEmailDisplay').innerText = currentUser.email;
+      let scopeSummary = 'Restricted Scope';
+      if (currentUser.role === 'Admin') {
+        scopeSummary = 'Administrator';
+      } else {
+        const scopes = [];
+        if (currentUser.scope.division && currentUser.scope.division.length > 0) scopes.push('Div: ' + currentUser.scope.division.join(', '));
+        if (currentUser.scope.department && currentUser.scope.department.length > 0) scopes.push('Dept: ' + currentUser.scope.department.join(', '));
+        if (scopes.length > 0) scopeSummary = scopes.join(' | ');
+      }
+      document.getElementById('userRoleDisplay').innerText = scopeSummary;
+    }
     if (currentUser.role.includes('Approver') || currentUser.role === 'Admin') { const appTab = document.getElementById('tabBtn-approvals'); if (appTab) appTab.classList.remove('hidden'); }
 
     const locSelect = document.getElementById('workLocation'); if (locSelect) populateSelect(locSelect, cachedLocations, "Select Location");
@@ -80,23 +93,59 @@
     applyUserScopeLocks();
   }
 
+  function filterOptionsByScope(options, scopeList) {
+    if (!scopeList || scopeList.length === 0) return options;
+    return options.filter(opt => scopeList.some(s => s.toLowerCase() === String(opt).toLowerCase()));
+  }
+
   function applyUserScopeLocks() {
     if (currentUser.role === 'Admin') return; 
-    const prefixes = ['', 'v-', 'd-', 'o-', 'opt-']; const scope = currentUser.scope;
+    const prefixes = ['', 'v-', 'd-', 'o-', 'opt-'];
     prefixes.forEach(p => {
-      if (scope.division) { const el = document.getElementById(p + 'division'); if (el) { el.value = scope.division; el.dispatchEvent(new Event('change')); el.disabled = true; el.classList.add('bg-slate-100'); } }
-      if (scope.group) { setTimeout(() => { const el = document.getElementById(p + 'group'); if (el) { el.value = scope.group; el.dispatchEvent(new Event('change')); el.disabled = true; el.classList.add('bg-slate-100'); } }, 100); }
-      if (scope.department) { setTimeout(() => { const el = document.getElementById(p + 'department'); if (el) { el.value = scope.department; el.dispatchEvent(new Event('change')); el.disabled = true; el.classList.add('bg-slate-100'); } }, 200); }
-      if (scope.section) { setTimeout(() => { const el = document.getElementById(p + 'section'); if (el) { el.value = scope.section; el.disabled = true; el.classList.add('bg-slate-100'); } }, 300); }
+      const divEl = document.getElementById(p + 'division');
+      if (divEl && divEl.options.length > 1) {
+        const allowedDivs = filterOptionsByScope(Object.keys(cachedOrgData), currentUser.scope.division);
+        if (allowedDivs.length === 1) {
+          divEl.value = allowedDivs[0];
+          divEl.dispatchEvent(new Event('change'));
+          divEl.disabled = true;
+          divEl.classList.add('bg-slate-100');
+        }
+      }
     });
   }
 
   function setupCascadingDropdowns(divId, grpId, deptId, secId, placeholderPrefix) {
     const divSelect = document.getElementById(divId); if(!divSelect) return;
-    populateSelect(divSelect, Object.keys(cachedOrgData), `${placeholderPrefix} Division`, divId.startsWith('v-') || divId.startsWith('o-') || divId.startsWith('d-') || divId.startsWith('opt-') ? "" : null);
-    divSelect.addEventListener('change', (e) => { updateDropdown(grpId, Object.keys(cachedOrgData[e.target.value] || {}), `${placeholderPrefix} Group`); updateDropdown(deptId, [], `${placeholderPrefix} Department`); updateDropdown(secId, [], `${placeholderPrefix} Section`); });
-    const grpSelect = document.getElementById(grpId); if(grpSelect) grpSelect.addEventListener('change', (e) => { const div = document.getElementById(divId).value; updateDropdown(deptId, Object.keys(cachedOrgData[div][e.target.value] || {}), `${placeholderPrefix} Department`); updateDropdown(secId, [], `${placeholderPrefix} Section`); });
-    const deptSelect = document.getElementById(deptId); if(deptSelect) deptSelect.addEventListener('change', (e) => { const div = document.getElementById(divId).value; const grp = document.getElementById(grpId).value; updateDropdown(secId, cachedOrgData[div][grp][e.target.value] || [], `${placeholderPrefix} Section`); });
+    const initialDivOptions = filterOptionsByScope(Object.keys(cachedOrgData), currentUser.role === 'Admin' ? [] : currentUser.scope.division);
+    populateSelect(divSelect, initialDivOptions, `${placeholderPrefix} Division`, divId.startsWith('v-') || divId.startsWith('o-') || divId.startsWith('d-') || divId.startsWith('opt-') ? "" : null);
+    
+    divSelect.addEventListener('change', (e) => {
+      const divVal = e.target.value;
+      let grpOpts = Object.keys(cachedOrgData[divVal] || {});
+      if (currentUser.role !== 'Admin') grpOpts = filterOptionsByScope(grpOpts, currentUser.scope.group);
+      updateDropdown(grpId, grpOpts, `${placeholderPrefix} Group`);
+      updateDropdown(deptId, [], `${placeholderPrefix} Department`);
+      updateDropdown(secId, [], `${placeholderPrefix} Section`);
+    });
+    
+    const grpSelect = document.getElementById(grpId);
+    if(grpSelect) grpSelect.addEventListener('change', (e) => {
+      const div = document.getElementById(divId).value;
+      let deptOpts = Object.keys(cachedOrgData[div]?.[e.target.value] || {});
+      if (currentUser.role !== 'Admin') deptOpts = filterOptionsByScope(deptOpts, currentUser.scope.department);
+      updateDropdown(deptId, deptOpts, `${placeholderPrefix} Department`);
+      updateDropdown(secId, [], `${placeholderPrefix} Section`);
+    });
+    
+    const deptSelect = document.getElementById(deptId);
+    if(deptSelect) deptSelect.addEventListener('change', (e) => {
+      const div = document.getElementById(divId).value;
+      const grp = document.getElementById(grpId).value;
+      let secOpts = cachedOrgData[div]?.[grp]?.[e.target.value] || [];
+      if (currentUser.role !== 'Admin') secOpts = filterOptionsByScope(secOpts, currentUser.scope.section);
+      updateDropdown(secId, secOpts, `${placeholderPrefix} Section`);
+    });
   }
 
   function updateDropdown(id, options, placeholder) {
@@ -105,6 +154,14 @@
     el.disabled = options.length === 0;
     if (options.length === 0) el.classList.add('bg-slate-50', 'disabled:opacity-50'); else el.classList.remove('bg-slate-50', 'disabled:opacity-50');
     populateSelect(el, options, placeholder, allowAny ? "" : null);
+
+    // Auto-select and lock if exactly 1 allowed option and non-admin
+    if (currentUser && currentUser.role !== 'Admin' && options.length === 1 && !allowAny) {
+      el.value = options[0];
+      el.disabled = true;
+      el.classList.add('bg-slate-100');
+      el.dispatchEvent(new Event('change'));
+    }
   }
 
   function populateSelect(element, optionsArr, placeholder, defaultVal = "") {
