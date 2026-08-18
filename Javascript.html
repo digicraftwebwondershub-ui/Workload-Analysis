@@ -187,15 +187,18 @@
     
     res.data.forEach(item => {
       // Create a unique key based on identical process details
-      const key = `${item.mainProcess}|${item.subprocess}|${item.vaNva}|${item.transactionCount}|${item.timeStandard}`;
+      const transMo = item.transMonth !== undefined ? item.transMonth : item.transactionCount;
+      const cycleMin = item.cycleTimeMin !== undefined ? item.cycleTimeMin : item.timeStandard;
+      const key = `${item.mainProcess}|${item.subprocess}|${item.vaNva}|${transMo}|${cycleMin}`;
       
       if (!groupedData[key]) {
         groupedData[key] = {
           mainProcess: item.mainProcess,
           subprocess: item.subprocess,
           vaNva: item.vaNva,
-          transactionCount: item.transactionCount,
-          timeStandard: item.timeStandard,
+          transMonth: transMo,
+          cycleTimeMin: cycleMin,
+          totalWorkloadHrs: item.totalWorkloadHrs !== undefined ? item.totalWorkloadHrs : item.totalTime,
           staffList: [] // Array to hold the names of everyone doing this exact task
         };
       }
@@ -241,8 +244,9 @@
           <td class="px-4 py-2 text-slate-700 flex items-center gap-2 pl-8"><svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>${item.subprocess}</td>
           <td class="px-4 py-2 text-center"><span class="text-xs font-bold px-2 py-0.5 rounded ${item.vaNva === 'VA' ? 'bg-emerald-100 text-emerald-700' : item.vaNva === 'BVA' ? 'bg-blue-100 text-blue-700' : 'bg-rose-100 text-rose-700'}">${item.vaNva}</span></td>
           <td class="px-4 py-2 w-72">${nameDisplay}</td>
-          <td class="px-4 py-2 text-center font-bold text-indigo-600">${item.transactionCount}</td>
-          <td class="px-4 py-2 text-right font-semibold text-slate-800">${item.timeStandard.toFixed(2)}</td>
+          <td class="px-4 py-2 text-center font-bold text-indigo-600">${item.transMonth}</td>
+          <td class="px-4 py-2 text-right font-semibold text-slate-800">${item.cycleTimeMin.toFixed(2)}</td>
+          <td class="px-4 py-2 text-right font-semibold text-indigo-700">${(Number(item.totalWorkloadHrs) || 0).toFixed(2)}</td>
         </tr>`;
     });
     
@@ -278,8 +282,8 @@
             <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Process Details</p>
             <p class="text-sm text-slate-800 font-semibold mb-2">${item.subprocess}</p>
             <div class="flex gap-4 mt-3">
-              <div class="bg-white border border-slate-200 rounded px-3 py-1.5"><p class="text-[10px] text-slate-400 uppercase font-bold">Trans Count</p><p class="text-sm font-bold text-indigo-600">${item.transactionCount}</p></div>
-              <div class="bg-white border border-slate-200 rounded px-3 py-1.5"><p class="text-[10px] text-slate-400 uppercase font-bold">Time Std.</p><p class="text-sm font-bold text-slate-700">${item.timeStandard.toFixed(2)} hrs</p></div>
+              <div class="bg-white border border-slate-200 rounded px-3 py-1.5"><p class="text-[10px] text-slate-400 uppercase font-bold">Trans / Month</p><p class="text-sm font-bold text-indigo-600">${item.transMonth}</p></div>
+              <div class="bg-white border border-slate-200 rounded px-3 py-1.5"><p class="text-[10px] text-slate-400 uppercase font-bold">Cycle Time (Min)</p><p class="text-sm font-bold text-slate-700">${item.cycleTimeMin.toFixed(2)} min</p></div>
             </div>
           </div>
           <div class="p-5 max-h-72 overflow-y-auto">
@@ -506,6 +510,7 @@
     toggleEmpFields(); 
     
     document.getElementById('fwa').value = firstRow.fwa || ""; 
+    if (document.getElementById('netReportingHours')) document.getElementById('netReportingHours').value = firstRow.netReportingHours || "";
     document.getElementById('division').value = firstRow.division || ""; 
     
     // --- SAFE CASCADING DROPDOWNS (Prevents silent crashes) ---
@@ -620,56 +625,116 @@
     // SAFE FALLBACKS AND HTML ESCAPING
     const task = subData ? (subData.subprocess || "").replace(/"/g, '&quot;') : ""; 
     const va = subData ? (subData.vaNva || "VA") : "VA"; 
-    const time = subData ? (subData.timeStandard || 0) : ""; 
     const cycle = subData ? (subData.cycle || parentCycle) : parentCycle; 
-    const trans = subData ? (subData.transactionCount || 1) : "1";
+    const transDay = subData ? (subData.transDay !== undefined ? subData.transDay : (subData.transactionCount || 1)) : 1;
+    const transMonth = subData ? (subData.transMonth !== undefined ? subData.transMonth : 0) : 0;
+    const cycleTimeMin = subData ? (subData.cycleTimeMin !== undefined ? subData.cycleTimeMin : (subData.timeStandard || 0)) : 0;
+    const totalWorkloadMin = subData ? (subData.totalWorkloadMin !== undefined ? subData.totalWorkloadMin : 0) : 0;
+    const totalWorkloadHrs = subData ? (subData.totalWorkloadHrs !== undefined ? subData.totalWorkloadHrs : (subData.totalTime || 0)) : 0;
     
-    const html = `<div id="${subId}" class="subprocess-row flex flex-wrap sm:flex-nowrap gap-3 items-end bg-white p-3 border border-slate-200 rounded relative group"><div class="flex-1 min-w-[200px]"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Task / Function</label><input type="text" class="sub-task w-full text-sm px-3 py-1.5 border border-slate-300 rounded outline-none" required value="${task}"></div><div class="w-24 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">VA/NVA/BVA</label><select class="sub-va w-full text-sm px-2 py-1.5 border border-slate-300 rounded outline-none" required><option value="VA" ${va==='VA'?'selected':''}>VA</option><option value="NVA" ${va==='NVA'?'selected':''}>NVA</option><option value="BVA" ${va==='BVA'?'selected':''}>BVA</option></select></div><div class="w-20 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Time (Hrs)</label><input type="number" step="0.01" min="0" class="sub-time w-full text-sm px-2 py-1.5 border border-slate-300 rounded outline-none" required value="${time}"></div><div class="w-32 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Cycle</label><select class="sub-cycle w-full text-sm px-2 py-1.5 border border-slate-300 rounded outline-none" required><option value="DAILY" ${cycle==='DAILY'?'selected':''}>DAILY</option><option value="WEEKLY" ${cycle==='WEEKLY'?'selected':''}>WEEKLY</option><option value="MONTHLY" ${cycle==='MONTHLY'?'selected':''}>MONTHLY</option><option value="QUARTERLY" ${cycle==='QUARTERLY'?'selected':''}>QUARTERLY</option><option value="ANNUALLY" ${cycle==='ANNUALLY'?'selected':''}>ANNUALLY</option></select></div><div class="w-20 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1 text-blue-600">Trans</label><input type="number" step="1" min="1" class="sub-trans w-full text-sm px-2 py-1.5 border border-blue-300 bg-blue-50 rounded outline-none" required value="${trans}"></div><div class="w-20 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Freq/Yr</label><input type="number" class="sub-freq w-full text-sm px-2 py-1.5 bg-slate-100 border border-slate-200 rounded outline-none" readonly></div><div class="w-24 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Total (Hrs)</label><input type="number" class="sub-total w-full text-sm px-2 py-1.5 bg-indigo-50 text-indigo-700 font-semibold border border-indigo-100 rounded outline-none" readonly></div><button type="button" onclick="removeElement('${subId}')" class="delete-btn text-slate-300 hover:text-red-500 transition-colors pb-1.5 shrink-0"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button></div>`;
+    const html = `<div id="${subId}" class="subprocess-row flex flex-wrap sm:flex-nowrap gap-2 items-end bg-white p-3 border border-slate-200 rounded relative group">
+      <div class="flex-1 min-w-[180px]"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Task / Function</label><input type="text" class="sub-task w-full text-sm px-2 py-1.5 border border-slate-300 rounded outline-none" required value="${task}"></div>
+      <div class="w-20 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">VA/NVA/BVA</label><select class="sub-va w-full text-sm px-1.5 py-1.5 border border-slate-300 rounded outline-none" required><option value="VA" ${va==='VA'?'selected':''}>VA</option><option value="NVA" ${va==='NVA'?'selected':''}>NVA</option><option value="BVA" ${va==='BVA'?'selected':''}>BVA</option></select></div>
+      <div class="w-28 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Cycle</label><select class="sub-cycle w-full text-sm px-1.5 py-1.5 border border-slate-300 rounded outline-none" required><option value="DAILY" ${cycle==='DAILY'?'selected':''}>DAILY</option><option value="WEEKLY" ${cycle==='WEEKLY'?'selected':''}>WEEKLY</option><option value="MONTHLY" ${cycle==='MONTHLY'?'selected':''}>MONTHLY</option><option value="QUARTERLY" ${cycle==='QUARTERLY'?'selected':''}>QUARTERLY</option><option value="ANNUALLY" ${cycle==='ANNUALLY'?'selected':''}>ANNUALLY</option></select></div>
+      <div class="w-20 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1 text-blue-600">Trans/Day</label><input type="number" step="0.01" min="0" class="sub-trans-day w-full text-sm px-2 py-1.5 border border-blue-300 bg-blue-50 rounded outline-none" required value="${transDay}"></div>
+      <div class="w-24 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Trans/Month</label><input type="number" step="0.01" class="sub-trans-month w-full text-sm px-2 py-1.5 bg-slate-100 border border-slate-200 rounded outline-none" readonly value="${transMonth}"></div>
+      <div class="w-28 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Cycle Time (Min)</label><input type="number" step="0.01" min="0" class="sub-cycle-time-min w-full text-sm px-2 py-1.5 border border-slate-300 rounded outline-none" required value="${cycleTimeMin}"></div>
+      <div class="w-28 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Workload (Min/Mo)</label><input type="number" step="0.01" class="sub-workload-min w-full text-sm px-2 py-1.5 bg-slate-100 border border-slate-200 rounded outline-none" readonly value="${totalWorkloadMin}"></div>
+      <div class="w-28 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Workload (Hrs/Mo)</label><input type="number" step="0.01" class="sub-workload-hrs w-full text-sm px-2 py-1.5 bg-indigo-50 text-indigo-700 font-semibold border border-indigo-100 rounded outline-none" readonly value="${totalWorkloadHrs}"></div>
+      <button type="button" onclick="removeElement('${subId}')" class="delete-btn text-slate-300 hover:text-red-500 transition-colors pb-1.5 shrink-0"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+    </div>`;
     container.insertAdjacentHTML('beforeend', html);
   }
 
   function removeElement(id) { document.getElementById(id)?.remove(); calculateTotals(); }
 
   function calculateTotals() {
-    const fwaVal = (document.getElementById('fwa').value || "").toUpperCase().trim();
-    let workingHoursYear = 0; let dailyFreq = 0;
-    if (fwaVal.includes("22")) { workingHoursYear = 2376; dailyFreq = 264; }
-    else if (fwaVal.includes("24")) { workingHoursYear = 2304; dailyFreq = 288; }
-    else if (fwaVal.includes("26")) { workingHoursYear = 2496; dailyFreq = 312; }
-    let globalTotalHours = 0;
+    const fwaStr = document.getElementById('fwa').value || "";
+    const fwaMatch = fwaStr.match(/\d+/);
+    const fwaDays = fwaMatch ? parseFloat(fwaMatch[0]) : 0;
+    const netHoursDay = parseFloat(document.getElementById('netReportingHours') ? document.getElementById('netReportingHours').value : 0) || 0;
+
+    let globalTotalHoursMonth = 0;
     document.querySelectorAll('.process-card').forEach(card => {
-      let mainTotal = 0; let mainTrans = 0; 
+      let mainTotalHrsMonth = 0; let mainTransMonth = 0;
       card.querySelectorAll('.subprocess-row').forEach(row => {
-        const timeStd = parseFloat(row.querySelector('.sub-time').value) || 0;
-        const cycle = (row.querySelector('.sub-cycle').value || "").toUpperCase().trim();
-        const transCount = parseFloat(row.querySelector('.sub-trans').value) || 1; 
-        const freqInput = row.querySelector('.sub-freq');
-        const totalInput = row.querySelector('.sub-total');
-        let freq = 0;
-        if (cycle.includes('DAILY')) freq = dailyFreq; else if (cycle.includes('WEEKLY')) freq = 52; else if (cycle.includes('MONTHLY')) freq = 12; else if (cycle.includes('QUARTERLY')) freq = 4; else if (cycle.includes('ANNUALLY')) freq = 1;
-        freqInput.value = freq; const totalAnnual = timeStd * freq; totalInput.value = totalAnnual.toFixed(2);
-        mainTotal += totalAnnual; mainTrans += transCount;
+        const transDay = parseFloat(row.querySelector('.sub-trans-day').value) || 0;
+        const cycleTimeMin = parseFloat(row.querySelector('.sub-cycle-time-min').value) || 0;
+
+        const transMonth = transDay * fwaDays;
+        const totalWorkloadMin = transMonth * cycleTimeMin;
+        const totalWorkloadHrs = totalWorkloadMin / 60;
+
+        row.querySelector('.sub-trans-month').value = transMonth.toFixed(2);
+        row.querySelector('.sub-workload-min').value = totalWorkloadMin.toFixed(2);
+        row.querySelector('.sub-workload-hrs').value = totalWorkloadHrs.toFixed(2);
+
+        mainTotalHrsMonth += totalWorkloadHrs;
+        mainTransMonth += transMonth;
       });
-      card.querySelector('.main-process-total').innerText = mainTotal.toFixed(2); card.querySelector('.main-process-trans').innerText = mainTrans; globalTotalHours += mainTotal;
+      card.querySelector('.main-process-total').innerText = mainTotalHrsMonth.toFixed(2);
+      card.querySelector('.main-process-trans').innerText = mainTransMonth.toFixed(2);
+      globalTotalHoursMonth += mainTotalHrsMonth;
     });
-    document.getElementById('globalTotalHours').innerText = globalTotalHours.toFixed(2);
-    const globalFTE = workingHoursYear > 0 ? (globalTotalHours / workingHoursYear) : 0; document.getElementById('globalFTE').innerText = globalFTE.toFixed(2);
+
+    document.getElementById('globalTotalHours').innerText = globalTotalHoursMonth.toFixed(2);
+    const monthlyAvailableHours = fwaDays * netHoursDay;
+    const globalFTE = monthlyAvailableHours > 0 ? (globalTotalHoursMonth / monthlyAvailableHours) : 0;
+    document.getElementById('globalFTE').innerText = globalFTE.toFixed(2);
   }
 
   function handleFormSubmit(e) {
     e.preventDefault(); if (isViewOnlyMode) return; calculateTotals(); 
     const globalFTE = document.getElementById('globalFTE').innerText;
     const baseData = {
-      position: document.getElementById('position').value, employeeName: document.getElementById('employeeName').value, workLocation: document.getElementById('workLocation').value,
-      empType: document.getElementById('empType').value, agencyName: document.getElementById('agencyName') ? document.getElementById('agencyName').value : "",
-      empStatus: document.getElementById('empStatus').value, startDate: document.getElementById('startDate') ? document.getElementById('startDate').value : "", endDate: document.getElementById('endDate') ? document.getElementById('endDate').value : "",
-      fwa: document.getElementById('fwa').value, division: document.getElementById('division').value, group: document.getElementById('group').value, department: document.getElementById('department').value, section: document.getElementById('section').value,
-      kpi1: document.getElementById('kpi1').value, kpi2: document.getElementById('kpi2').value || "", kpi3: document.getElementById('kpi3').value || "", kpi4: document.getElementById('kpi4').value || "", kpi5: document.getElementById('kpi5').value || ""
+      position: document.getElementById('position').value,
+      employeeName: document.getElementById('employeeName').value,
+      workLocation: document.getElementById('workLocation').value,
+      empType: document.getElementById('empType').value,
+      agencyName: document.getElementById('agencyName') ? document.getElementById('agencyName').value : "",
+      empStatus: document.getElementById('empStatus').value,
+      startDate: document.getElementById('startDate') ? document.getElementById('startDate').value : "",
+      endDate: document.getElementById('endDate') ? document.getElementById('endDate').value : "",
+      fwa: document.getElementById('fwa').value,
+      netReportingHours: document.getElementById('netReportingHours') ? document.getElementById('netReportingHours').value : "",
+      division: document.getElementById('division').value,
+      group: document.getElementById('group').value,
+      department: document.getElementById('department').value,
+      section: document.getElementById('section').value,
+      kpi1: document.getElementById('kpi1').value,
+      kpi2: document.getElementById('kpi2').value || "",
+      kpi3: document.getElementById('kpi3').value || "",
+      kpi4: document.getElementById('kpi4').value || "",
+      kpi5: document.getElementById('kpi5').value || ""
     };
     let payload = [];
     document.querySelectorAll('.process-card').forEach(card => {
       const mp = card.querySelector('.main-process-name').value;
-      card.querySelectorAll('.subprocess-row').forEach(row => { payload.push({ ...baseData, mainProcess: mp, subprocess: row.querySelector('.sub-task').value, vaNva: row.querySelector('.sub-va').value, timeStandard: Number(row.querySelector('.sub-time').value), cycle: row.querySelector('.sub-cycle').value, frequency: Number(row.querySelector('.sub-freq').value), transactionCount: Number(row.querySelector('.sub-trans').value), totalTime: Number(row.querySelector('.sub-total').value) }); });
+      card.querySelectorAll('.subprocess-row').forEach(row => {
+        const transDay = Number(row.querySelector('.sub-trans-day').value);
+        const transMonth = Number(row.querySelector('.sub-trans-month').value);
+        const cycleTimeMin = Number(row.querySelector('.sub-cycle-time-min').value);
+        const totalWorkloadMin = Number(row.querySelector('.sub-workload-min').value);
+        const totalWorkloadHrs = Number(row.querySelector('.sub-workload-hrs').value);
+
+        payload.push({
+          ...baseData,
+          mainProcess: mp,
+          subprocess: row.querySelector('.sub-task').value,
+          vaNva: row.querySelector('.sub-va').value,
+          cycle: row.querySelector('.sub-cycle').value,
+          transDay: transDay,
+          transMonth: transMonth,
+          cycleTimeMin: cycleTimeMin,
+          totalWorkloadMin: totalWorkloadMin,
+          totalWorkloadHrs: totalWorkloadHrs,
+          // Compatibility aliases
+          timeStandard: cycleTimeMin,
+          frequency: 0,
+          transactionCount: transMonth,
+          totalTime: totalWorkloadHrs
+        });
+      });
     });
     if (payload.length === 0) return showToast('Please add at least one subprocess.', 'error');
     showToast('Saving data, please wait...');
