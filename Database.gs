@@ -96,7 +96,7 @@ function getNormalizedData() {
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
     const rowPos = String(row[0]).trim();
-    const rowFte = String(row[14]).trim();
+    const rowFte = String(row[16]).trim();
     
     let isFirstRow = false;
     if (i === 0) isFirstRow = true; 
@@ -106,26 +106,50 @@ function getNormalizedData() {
 
     if (isFirstRow) {
       currentBase = {
-        position: rowPos || currentBase.position, fwa: String(row[1]).trim() || currentBase.fwa,
-        division: String(row[2]).trim() || currentBase.division, group: String(row[3]).trim() || currentBase.group,
-        department: String(row[4]).trim() || currentBase.department, section: String(row[5]).trim() || currentBase.section,
-        employeeName: row[15] ? String(row[15]).trim() : "", workLocation: row[16] ? String(row[16]).trim() : "", 
-        empType: row[17] ? String(row[17]).trim() : "", agencyName: row[18] ? String(row[18]).trim() : "", 
-        empStatus: row[19] ? String(row[19]).trim() : "", startDate: row[20] ? String(row[20]).trim() : "", 
-        endDate: row[21] ? String(row[21]).trim() : "", kpi1: row[22] ? String(row[22]).trim() : "", 
-        kpi2: row[23] ? String(row[23]).trim() : "", kpi3: row[24] ? String(row[24]).trim() : "", 
-        kpi4: row[25] ? String(row[25]).trim() : "", kpi5: row[26] ? String(row[26]).trim() : "",
-        approvalStatus: row[27] ? String(row[27]).trim() : "Approved", remarks: row[28] ? String(row[28]).trim() : "",
-        encoderEmail: row[29] ? String(row[29]).trim() : "", l1Target: row[30] ? String(row[30]).trim().toLowerCase() : "",
-        l2Target: row[31] ? String(row[31]).trim().toLowerCase() : ""
+        position: rowPos || currentBase.position,
+        fwa: String(row[1]).trim() || currentBase.fwa,
+        netReportingHours: String(row[2]).trim() || currentBase.netReportingHours,
+        division: String(row[3]).trim() || currentBase.division,
+        group: String(row[4]).trim() || currentBase.group,
+        department: String(row[5]).trim() || currentBase.department,
+        section: String(row[6]).trim() || currentBase.section,
+        employeeName: row[17] ? String(row[17]).trim() : "",
+        workLocation: row[18] ? String(row[18]).trim() : "",
+        empType: row[19] ? String(row[19]).trim() : "",
+        agencyName: row[20] ? String(row[20]).trim() : "",
+        empStatus: row[21] ? String(row[21]).trim() : "",
+        startDate: row[22] ? String(row[22]).trim() : "",
+        endDate: row[23] ? String(row[23]).trim() : "",
+        kpi1: row[24] ? String(row[24]).trim() : "",
+        kpi2: row[25] ? String(row[25]).trim() : "",
+        kpi3: row[26] ? String(row[26]).trim() : "",
+        kpi4: row[27] ? String(row[27]).trim() : "",
+        kpi5: row[28] ? String(row[28]).trim() : "",
+        approvalStatus: row[29] ? String(row[29]).trim() : "Approved",
+        remarks: row[30] ? String(row[30]).trim() : "",
+        encoderEmail: row[31] ? String(row[31]).trim() : "",
+        l1Target: row[32] ? String(row[32]).trim().toLowerCase() : "",
+        l2Target: row[33] ? String(row[33]).trim().toLowerCase() : ""
       };
     }
 
-    if (row[6] || row[7]) { 
+    if (row[7] || row[8]) {
       normalized.push({
-        ...currentBase, mainProcess: row[6], subprocess: row[7], vaNva: row[8],
-        timeStandard: row[9], cycle: row[10], frequency: row[11], transactionCount: row[12], 
-        totalTime: row[13], fte: isFirstRow ? rowFte : ""
+        ...currentBase,
+        mainProcess: row[7],
+        subprocess: row[8],
+        vaNva: row[9],
+        cycle: row[10],
+        transDay: row[11],
+        transMonth: row[12],
+        cycleTimeMin: row[13],
+        totalWorkloadMin: row[14],
+        totalWorkloadHrs: row[15],
+        // Aliases for compatibility
+        timeStandard: row[13],
+        transactionCount: row[12],
+        totalTime: row[15],
+        fte: isFirstRow ? rowFte : ""
       });
     }
   }
@@ -157,9 +181,15 @@ function getProcessDirectory(filters) {
         mainProcess: String(row.mainProcess).trim(),
         subprocess: String(row.subprocess).trim(),
         vaNva: row.vaNva,
+        cycle: row.cycle,
+        transDay: Number(row.transDay) || 0,
+        transMonth: Number(row.transMonth) || 0,
+        cycleTimeMin: Number(row.cycleTimeMin) || 0,
+        totalWorkloadMin: Number(row.totalWorkloadMin) || 0,
+        totalWorkloadHrs: Number(row.totalWorkloadHrs) || 0,
         namePosition: (row.employeeName ? row.employeeName : 'Vacant') + ' / ' + row.position,
-        timeStandard: Number(row.timeStandard) || 0,
-        transactionCount: Number(row.transactionCount) || 0
+        timeStandard: Number(row.cycleTimeMin) || 0,
+        transactionCount: Number(row.transMonth) || 0
       });
     });
     
@@ -324,25 +354,25 @@ function updateApprovalStatus(payload) {
     for (let i = 1; i < data.length; i++) { 
       const row = data[i];
       const rowPos = String(row[0]).trim();
-      const rowFte = String(row[14]).trim();
+      const rowFte = String(row[16]).trim();
       
       let isFirstRow = false;
       if (i === 1 || rowFte !== "" || (rowPos !== "" && rowPos !== currentBase.position) || (rowPos !== "" && String(data[i-1][0]).trim() === "")) isFirstRow = true;
 
       if (isFirstRow) {
         currentBase = {
-          position: rowPos || currentBase.position, employeeName: row[15] ? String(row[15]).trim() : "",
-          division: String(row[2]).trim() || currentBase.division, group: String(row[3]).trim() || currentBase.group,
-          department: String(row[4]).trim() || currentBase.department, section: String(row[5]).trim() || currentBase.section,
-          status: String(row[27]).trim() // Grab the current approval status of the row
+          position: rowPos || currentBase.position, employeeName: row[17] ? String(row[17]).trim() : "",
+          division: String(row[3]).trim() || currentBase.division, group: String(row[4]).trim() || currentBase.group,
+          department: String(row[5]).trim() || currentBase.department, section: String(row[6]).trim() || currentBase.section,
+          status: String(row[29]).trim() // Grab the current approval status of the row
         };
       }
       
       if (currentBase.position === pos && currentBase.employeeName === empName && currentBase.division === div && currentBase.group === grp && currentBase.department === dept && currentBase.section === sec) {
         
         if (action === "Approve" && !isDetermined) {
-          const l1Email = String(data[i][30]).trim().toLowerCase();
-          const l2Email = String(data[i][31]).trim().toLowerCase(); 
+          const l1Email = String(data[i][32]).trim().toLowerCase();
+          const l2Email = String(data[i][33]).trim().toLowerCase();
           
           if (user.role === 'Admin') {
             newStatus = "Approved";
@@ -356,8 +386,8 @@ function updateApprovalStatus(payload) {
           isDetermined = true; // Lock in the logic so it doesn't recalculate on subprocess rows
         }
 
-        sheet.getRange(i + 1, 28).setValue(isFirstRow ? newStatus : ""); 
-        sheet.getRange(i + 1, 29).setValue(isFirstRow ? remarks : "");   
+        sheet.getRange(i + 1, 30).setValue(isFirstRow ? newStatus : "");
+        sheet.getRange(i + 1, 31).setValue(isFirstRow ? remarks : "");
       }
     }
     return { success: true, message: `Workload marked as ${newStatus}!` };
@@ -417,16 +447,16 @@ function deleteWorkloadRecords(pos, empName, div, grp, dept, sec) {
   for (let i = 1; i < data.length; i++) { 
     const row = data[i];
     const rowPos = String(row[0]).trim();
-    const rowFte = String(row[14]).trim();
+    const rowFte = String(row[16]).trim();
     
     let isFirstRow = false;
     if (i === 1 || rowFte !== "" || (rowPos !== "" && rowPos !== currentBase.position) || (rowPos !== "" && String(data[i-1][0]).trim() === "")) isFirstRow = true;
 
     if (isFirstRow) {
       currentBase = {
-        position: rowPos || currentBase.position, employeeName: row[15] ? String(row[15]).trim() : "",
-        division: String(row[2]).trim() || currentBase.division, group: String(row[3]).trim() || currentBase.group,
-        department: String(row[4]).trim() || currentBase.department, section: String(row[5]).trim() || currentBase.section
+        position: rowPos || currentBase.position, employeeName: row[17] ? String(row[17]).trim() : "",
+        division: String(row[3]).trim() || currentBase.division, group: String(row[4]).trim() || currentBase.group,
+        department: String(row[5]).trim() || currentBase.department, section: String(row[6]).trim() || currentBase.section
       };
     }
     
@@ -452,11 +482,40 @@ function saveWorkload(payload, positionFTE, isEdit, oldPosData) {
     else if (!user.l1Approver && user.l2Approver) newStatus = 'Pending Level 2'; 
     
     const rowsToInsert = payload.map((row, index) => [
-      index === 0 ? row.position : "", index === 0 ? row.fwa : "", index === 0 ? row.division : "", index === 0 ? row.group : "", index === 0 ? row.department : "", index === 0 ? row.section : "",
-      row.mainProcess, row.subprocess, row.vaNva, row.timeStandard, row.cycle, row.frequency, row.transactionCount, row.totalTime, 
-      index === 0 ? positionFTE : "", index === 0 ? row.employeeName : "", index === 0 ? row.workLocation : "", index === 0 ? row.empType : "", index === 0 ? row.agencyName : "", index === 0 ? row.empStatus : "", index === 0 ? row.startDate : "", index === 0 ? row.endDate : "",
-      index === 0 ? row.kpi1 : "", index === 0 ? row.kpi2 : "", index === 0 ? row.kpi3 : "", index === 0 ? row.kpi4 : "", index === 0 ? row.kpi5 : "",
-      index === 0 ? newStatus : "", "", index === 0 ? user.email : "", index === 0 ? user.l1Approver : "", index === 0 ? user.l2Approver : ""
+      index === 0 ? row.position : "",
+      index === 0 ? row.fwa : "",
+      index === 0 ? row.netReportingHours : "",
+      index === 0 ? row.division : "",
+      index === 0 ? row.group : "",
+      index === 0 ? row.department : "",
+      index === 0 ? row.section : "",
+      row.mainProcess,
+      row.subprocess,
+      row.vaNva,
+      row.cycle,
+      row.transDay,
+      row.transMonth,
+      row.cycleTimeMin,
+      row.totalWorkloadMin,
+      row.totalWorkloadHrs,
+      index === 0 ? positionFTE : "",
+      index === 0 ? row.employeeName : "",
+      index === 0 ? row.workLocation : "",
+      index === 0 ? row.empType : "",
+      index === 0 ? row.agencyName : "",
+      index === 0 ? row.empStatus : "",
+      index === 0 ? row.startDate : "",
+      index === 0 ? row.endDate : "",
+      index === 0 ? row.kpi1 : "",
+      index === 0 ? row.kpi2 : "",
+      index === 0 ? row.kpi3 : "",
+      index === 0 ? row.kpi4 : "",
+      index === 0 ? row.kpi5 : "",
+      index === 0 ? newStatus : "",
+      "",
+      index === 0 ? user.email : "",
+      index === 0 ? user.l1Approver : "",
+      index === 0 ? user.l2Approver : ""
     ]);
     
     if (rowsToInsert.length > 0) sheet.getRange(sheet.getLastRow() + 1, 1, rowsToInsert.length, rowsToInsert[0].length).setValues(rowsToInsert);
