@@ -1,0 +1,688 @@
+<script>
+  const tabTitles = {
+    'entry': 'Data Entry & Workload Creation', 'view': 'View & Edit Directory', 'directory': 'Process Directory',
+    'overlap': 'Process Redundancy Analysis', 'optimization': 'Workforce Optimization Engine',
+    'reports': 'Executive Dashboard', 'approvals': 'Approvals Pipeline'
+  };
+
+  let cachedOrgData = {}; let cachedLocations = []; let processCount = 0;
+  let isEditMode = false; let isViewOnlyMode = false; let editingOriginalData = null; 
+  let currentOverlapData = []; let globalChartInstances = {}; 
+  let currentUser = null; let activeApprovalPayload = null;
+
+  let directoryCache = null; 
+  let directoryCacheFilters = "";
+
+  document.addEventListener('DOMContentLoaded', () => {
+    google.script.run.withSuccessHandler(initData).withFailureHandler(showError).getOrgChartData();
+    const form = document.getElementById('workloadForm');
+    form.addEventListener('input', calculateTotals);
+    form.addEventListener('change', calculateTotals);
+    form.addEventListener('submit', handleFormSubmit);
+  });
+
+  function toggleEmpFields() {
+    const empType = document.getElementById('empType')?.value; const agencyContainer = document.getElementById('agencyContainer'); const agencyName = document.getElementById('agencyName');
+    if (empType === 'Jobcon' && agencyContainer) { agencyContainer.classList.remove('hidden'); if (agencyName) agencyName.required = true; } 
+    else if (agencyContainer) { agencyContainer.classList.add('hidden'); if (agencyName) { agencyName.required = false; agencyName.value = ""; } }
+    const empStatus = document.getElementById('empStatus')?.value; const dateContainer = document.getElementById('dateContainer'); const startDate = document.getElementById('startDate'); const endDate = document.getElementById('endDate');
+    if (empStatus === 'Project-Based' && dateContainer) { dateContainer.classList.remove('hidden'); if (startDate) startDate.required = true; if (endDate) endDate.required = true; } 
+    else if (dateContainer) { dateContainer.classList.add('hidden'); if (startDate) { startDate.required = false; startDate.value = ""; } if (endDate) { endDate.required = false; endDate.value = ""; } }
+  }
+
+  function switchTab(tab) {
+    const sections = ['entry', 'view', 'directory', 'overlap', 'optimization', 'reports', 'approvals'];
+    sections.forEach(s => {
+      const el = document.getElementById(`section-${s}`); const btn = document.getElementById(`tabBtn-${s}`);
+      if (el) el.classList.add('hidden');
+      if (btn) btn.className = 'w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-indigo-100 hover:bg-indigo-600 hover:text-white';
+    });
+    const activeEl = document.getElementById(`section-${tab}`); const activeBtn = document.getElementById(`tabBtn-${tab}`);
+    if (activeEl) activeEl.classList.remove('hidden');
+    if (activeBtn) activeBtn.className = 'w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-colors bg-indigo-800 text-white shadow-inner';
+    const titleEl = document.getElementById('currentTabTitle'); if (titleEl) titleEl.innerText = tabTitles[tab] || 'Workload Analysis';
+
+    if (tab === 'entry') document.getElementById('summaryFooter').classList.remove('hidden');
+    else {
+      document.getElementById('summaryFooter').classList.add('hidden');
+      if (Object.keys(cachedOrgData).length > 0) {
+        if (tab === 'view') fetchViewData();
+        if (tab === 'directory') fetchDirectoryData(); 
+        if (tab === 'overlap') fetchOverlapData();
+        if (tab === 'reports') generateReports(); 
+        if (tab === 'approvals') fetchApprovals();
+      }
+    }
+  }
+
+  function showToast(message, type = 'success') {
+    const container = document.getElementById('toastContainer'); const bg = type === 'success' ? 'bg-emerald-500' : 'bg-red-500';
+    const html = `<div class="${bg} text-white px-6 py-3 rounded-lg shadow-lg transform transition-all duration-300 flex items-center gap-2 text-sm font-medium">${message}</div>`;
+    const toast = document.createElement('div'); toast.innerHTML = html; container.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 4000);
+  }
+  function showError(err) { showToast(err.message || 'An error occurred', 'error'); document.getElementById('loader').innerHTML = `<p class="text-red-500">Failed to load data.</p>`; }
+
+  function initData(res) {
+    if (!res.success) { showError(res); return; }
+    cachedOrgData = res.data.orgChart; cachedLocations = res.data.locations; currentUser = res.data.userProfile; 
+    document.getElementById('loader').style.display = 'none'; document.getElementById('appContainer').classList.remove('hidden'); switchTab('entry');
+    const userBadge = document.getElementById('userBadge');
+    if (userBadge) { userBadge.classList.remove('hidden'); document.getElementById('userEmailDisplay').innerText = currentUser.email; document.getElementById('userRoleDisplay').innerText = currentUser.role === 'Admin' ? 'Administrator' : (currentUser.scope.department || 'Restricted Scope'); }
+    if (currentUser.role.includes('Approver') || currentUser.role === 'Admin') { const appTab = document.getElementById('tabBtn-approvals'); if (appTab) appTab.classList.remove('hidden'); }
+
+    const locSelect = document.getElementById('workLocation'); if (locSelect) populateSelect(locSelect, cachedLocations, "Select Location");
+    setupCascadingDropdowns('division', 'group', 'department', 'section', 'Select'); 
+    setupCascadingDropdowns('v-division', 'v-group', 'v-department', 'v-section', 'All');
+    setupCascadingDropdowns('d-division', 'd-group', 'd-department', 'd-section', 'All');
+    setupCascadingDropdowns('o-division', 'o-group', 'o-department', 'o-section', 'All'); 
+    setupCascadingDropdowns('opt-division', 'opt-group', 'opt-department', 'opt-section', 'All');
+    applyUserScopeLocks();
+  }
+
+  function applyUserScopeLocks() {
+    if (currentUser.role === 'Admin') return; 
+    const prefixes = ['', 'v-', 'd-', 'o-', 'opt-']; const scope = currentUser.scope;
+    prefixes.forEach(p => {
+      if (scope.division) { const el = document.getElementById(p + 'division'); if (el) { el.value = scope.division; el.dispatchEvent(new Event('change')); el.disabled = true; el.classList.add('bg-slate-100'); } }
+      if (scope.group) { setTimeout(() => { const el = document.getElementById(p + 'group'); if (el) { el.value = scope.group; el.dispatchEvent(new Event('change')); el.disabled = true; el.classList.add('bg-slate-100'); } }, 100); }
+      if (scope.department) { setTimeout(() => { const el = document.getElementById(p + 'department'); if (el) { el.value = scope.department; el.dispatchEvent(new Event('change')); el.disabled = true; el.classList.add('bg-slate-100'); } }, 200); }
+      if (scope.section) { setTimeout(() => { const el = document.getElementById(p + 'section'); if (el) { el.value = scope.section; el.disabled = true; el.classList.add('bg-slate-100'); } }, 300); }
+    });
+  }
+
+  function setupCascadingDropdowns(divId, grpId, deptId, secId, placeholderPrefix) {
+    const divSelect = document.getElementById(divId); if(!divSelect) return;
+    populateSelect(divSelect, Object.keys(cachedOrgData), `${placeholderPrefix} Division`, divId.startsWith('v-') || divId.startsWith('o-') || divId.startsWith('d-') || divId.startsWith('opt-') ? "" : null);
+    divSelect.addEventListener('change', (e) => { updateDropdown(grpId, Object.keys(cachedOrgData[e.target.value] || {}), `${placeholderPrefix} Group`); updateDropdown(deptId, [], `${placeholderPrefix} Department`); updateDropdown(secId, [], `${placeholderPrefix} Section`); });
+    const grpSelect = document.getElementById(grpId); if(grpSelect) grpSelect.addEventListener('change', (e) => { const div = document.getElementById(divId).value; updateDropdown(deptId, Object.keys(cachedOrgData[div][e.target.value] || {}), `${placeholderPrefix} Department`); updateDropdown(secId, [], `${placeholderPrefix} Section`); });
+    const deptSelect = document.getElementById(deptId); if(deptSelect) deptSelect.addEventListener('change', (e) => { const div = document.getElementById(divId).value; const grp = document.getElementById(grpId).value; updateDropdown(secId, cachedOrgData[div][grp][e.target.value] || [], `${placeholderPrefix} Section`); });
+  }
+
+  function updateDropdown(id, options, placeholder) {
+    const el = document.getElementById(id); if(!el) return;
+    const allowAny = id.startsWith('v-') || id.startsWith('o-') || id.startsWith('d-') || id.startsWith('opt-');
+    el.disabled = options.length === 0;
+    if (options.length === 0) el.classList.add('bg-slate-50', 'disabled:opacity-50'); else el.classList.remove('bg-slate-50', 'disabled:opacity-50');
+    populateSelect(el, options, placeholder, allowAny ? "" : null);
+  }
+
+  function populateSelect(element, optionsArr, placeholder, defaultVal = "") {
+    if(!element) return;
+    element.innerHTML = `<option value="${defaultVal}" ${defaultVal === "" ? "selected" : ""}>${placeholder}</option>`;
+    optionsArr.forEach(opt => { element.innerHTML += `<option value="${opt}">${opt}</option>`; });
+  }
+
+  function fetchViewData() {
+    const tbody = document.getElementById('viewDataTable'); if(!tbody) return;
+    tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-slate-500">Loading data...</td></tr>`;
+    const filters = { division: document.getElementById('v-division').value, group: document.getElementById('v-group').value, department: document.getElementById('v-department').value, section: document.getElementById('v-section').value };
+    google.script.run.withSuccessHandler(res => { if(res.success) renderViewTable(res.data); else showError(res); }).getSavedPositions(filters);
+  }
+
+  function renderViewTable(data) {
+    const tbody = document.getElementById('viewDataTable');
+    const validData = data.filter(d => d.approvalStatus === 'Approved');
+    
+    const actualHeadcount = validData.filter(d => d.employeeName.trim() !== "").length; 
+    document.getElementById('scorecard-manpower').innerText = actualHeadcount;
+    const vacantHeadcount = validData.filter(d => d.employeeName.trim() === "").length; 
+    document.getElementById('scorecard-vacant').innerText = vacantHeadcount;
+    const totalFTE = validData.reduce((sum, item) => sum + (parseFloat(item.fte) || 0), 0); 
+    document.getElementById('scorecard-fte').innerText = totalFTE.toFixed(2);
+
+    if (data.length === 0) { tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-slate-500">No records found matching filters.</td></tr>`; return; }
+    
+    let html = '';
+    data.forEach(item => {
+      const nameDisplay = item.employeeName ? `<span class="font-bold text-slate-800">${item.employeeName}</span>` : `<span class="italic text-slate-400">Vacant</span>`;
+      let statusBadge = "";
+      if (item.approvalStatus.includes("Pending")) statusBadge = `<span class="ml-2 bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.5 rounded font-bold border border-amber-200">${item.approvalStatus}</span>`;
+      else if (item.approvalStatus === "Rejected") statusBadge = `<span class="ml-2 bg-rose-100 text-rose-800 text-[10px] px-1.5 py-0.5 rounded font-bold border border-rose-200">Rejected</span>`;
+      else if (item.approvalStatus === "Approved") statusBadge = `<span class="ml-2 bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.5 rounded font-bold border border-emerald-200">Approved</span>`;
+
+      let remarksHtml = item.remarks ? `<div class="text-[10px] text-slate-500 italic mt-1 leading-tight border-l-2 border-slate-300 pl-1">Note: ${item.remarks}</div>` : '';
+
+      // NEW: Added the "Clone" button and updated the actionPosition parameters to accept strings ('view', 'edit', 'clone')
+      html += `
+        <tr class="hover:bg-slate-50 transition-colors">
+          <td class="px-6 py-4"><div class="text-sm flex items-center">${nameDisplay} ${statusBadge}</div><div class="text-xs text-indigo-600 font-semibold mb-1">${item.position}</div>${remarksHtml}</td>
+          <td class="px-6 py-4 text-slate-600"><div class="text-xs uppercase font-bold text-slate-500">${item.division}</div><div class="text-sm">${item.department || '-'}</div></td>
+          <td class="px-6 py-4 text-slate-600">${item.mpCount} Processes</td>
+          <td class="px-6 py-4 font-bold text-slate-800">${parseFloat(item.fte).toFixed(2)}</td>
+          <td class="px-6 py-4 text-right whitespace-nowrap">
+            <button onclick="actionPosition('${item.position}', '${item.employeeName}', '${item.division}', '${item.group}', '${item.department}', '${item.section}', 'view')" class="text-blue-600 hover:text-blue-800 text-sm font-medium bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded transition-colors mr-2">View</button>
+            <button onclick="actionPosition('${item.position}', '${item.employeeName}', '${item.division}', '${item.group}', '${item.department}', '${item.section}', 'edit')" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded transition-colors mr-2">Edit</button>
+            <button onclick="actionPosition('${item.position}', '${item.employeeName}', '${item.division}', '${item.group}', '${item.department}', '${item.section}', 'clone')" class="text-emerald-600 hover:text-emerald-800 text-sm font-medium bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded transition-colors shadow-sm">Clone</button>
+          </td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+  }
+
+  function fetchDirectoryData() {
+    const tbody = document.getElementById('directoryTableBody'); if(!tbody) return;
+    
+    const filters = { division: document.getElementById('d-division').value, group: document.getElementById('d-group').value, department: document.getElementById('d-department').value, section: document.getElementById('d-section').value };
+    const filterString = JSON.stringify(filters);
+
+    if (directoryCache && directoryCacheFilters === filterString) {
+      renderDirectoryTable({ success: true, data: directoryCache }); return;
+    }
+
+    tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500">Loading directory...</td></tr>`;
+    google.script.run.withSuccessHandler(res => { 
+      if(res.success) { directoryCache = res.data; directoryCacheFilters = filterString; }
+      renderDirectoryTable(res); 
+    }).getProcessDirectory(filters);
+  }
+
+  function renderDirectoryTable(res) {
+    if (!res.success) return showError(res);
+    const tbody = document.getElementById('directoryTableBody');
+    if (res.data.length === 0) { tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500">No processes found.</td></tr>`; return; }
+
+    // 1. SMART GROUPING ALGORITHM
+    const groupedData = {};
+    
+    res.data.forEach(item => {
+      // Create a unique key based on identical process details
+      const key = `${item.mainProcess}|${item.subprocess}|${item.vaNva}|${item.transactionCount}|${item.timeStandard}`;
+      
+      if (!groupedData[key]) {
+        groupedData[key] = {
+          mainProcess: item.mainProcess,
+          subprocess: item.subprocess,
+          vaNva: item.vaNva,
+          transactionCount: item.transactionCount,
+          timeStandard: item.timeStandard,
+          staffList: [] // Array to hold the names of everyone doing this exact task
+        };
+      }
+      groupedData[key].staffList.push(item.namePosition);
+    });
+
+    // Convert our grouped object back into an array and sort it alphabetically
+    const groupedArray = Object.values(groupedData);
+    groupedArray.sort((a, b) => a.mainProcess.localeCompare(b.mainProcess));
+
+    // Expose this grouped array to the window so our modal can access it later
+    window.currentDirectoryGroups = groupedArray;
+
+    // 2. RENDER THE GROUPED TABLE
+    let html = ''; 
+    let currentMainProcess = null;
+
+    groupedArray.forEach((item, index) => {
+      const isNewGroup = item.mainProcess !== currentMainProcess;
+      currentMainProcess = item.mainProcess;
+      
+      const mpDisplay = isNewGroup ? `<div class="font-bold text-slate-800 flex items-center gap-2"><svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>${item.mainProcess}</div>` : '';
+      const borderClass = isNewGroup ? 'border-t-2 border-slate-200' : 'border-t border-slate-100';
+      const cellClass = isNewGroup ? 'bg-slate-50/50' : '';
+
+      // Determine how to display the Employee Name column based on the grouping
+      let nameDisplay = '';
+      if (item.staffList.length === 1) {
+        // Only one person doing this specific setup
+        nameDisplay = `<span class="text-slate-600 text-sm">${item.staffList[0]}</span>`;
+      } else {
+        // Multiple people doing the exact same thing
+        nameDisplay = `
+          <div class="flex items-center justify-between">
+            <span class="text-indigo-600 font-bold text-sm bg-indigo-50 px-2 py-1 rounded">${item.staffList.length} Personnel</span>
+            <button onclick="viewDirectoryStaff(${index})" class="text-xs bg-white text-indigo-600 hover:bg-indigo-600 hover:text-white border border-indigo-200 font-semibold px-3 py-1 rounded transition-colors shadow-sm">View Staff</button>
+          </div>`;
+      }
+
+      html += `
+        <tr class="hover:bg-indigo-50/30 transition-colors ${borderClass}">
+          <td class="px-4 py-2 ${cellClass}">${mpDisplay}</td>
+          <td class="px-4 py-2 text-slate-700 flex items-center gap-2 pl-8"><svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>${item.subprocess}</td>
+          <td class="px-4 py-2 text-center"><span class="text-xs font-bold px-2 py-0.5 rounded ${item.vaNva === 'VA' ? 'bg-emerald-100 text-emerald-700' : item.vaNva === 'BVA' ? 'bg-blue-100 text-blue-700' : 'bg-rose-100 text-rose-700'}">${item.vaNva}</span></td>
+          <td class="px-4 py-2 w-72">${nameDisplay}</td>
+          <td class="px-4 py-2 text-center font-bold text-indigo-600">${item.transactionCount}</td>
+          <td class="px-4 py-2 text-right font-semibold text-slate-800">${item.timeStandard.toFixed(2)}</td>
+        </tr>`;
+    });
+    
+    tbody.innerHTML = html;
+  }
+
+  // 3. NEW FUNCTION FOR THE STAFF MODAL
+  function viewDirectoryStaff(index) {
+    const item = window.currentDirectoryGroups[index];
+    if (!item) return;
+    
+    // Remove existing modal if one happens to be open
+    const existingModal = document.getElementById('dirStaffModal');
+    if (existingModal) existingModal.remove();
+
+    // Build the list of names
+    let listHtml = '';
+    item.staffList.forEach(staff => {
+      listHtml += `<li class="py-3 border-b border-slate-100 flex items-center gap-2 text-sm text-slate-700"><svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>${staff}</li>`;
+    });
+
+    // Inject the new modal into the document body
+    const modalHtml = `
+      <div id="dirStaffModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[100]">
+        <div class="bg-white rounded-lg shadow-2xl w-full max-w-md overflow-hidden transform transition-all">
+          <div class="bg-indigo-600 px-5 py-4 flex justify-between items-center">
+            <h3 class="text-white font-bold text-lg">Personnel Breakdown</h3>
+            <button onclick="document.getElementById('dirStaffModal').remove()" class="text-indigo-200 hover:text-white transition-colors">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+          </div>
+          <div class="p-5 bg-slate-50 border-b border-slate-200">
+            <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Process Details</p>
+            <p class="text-sm text-slate-800 font-semibold mb-2">${item.subprocess}</p>
+            <div class="flex gap-4 mt-3">
+              <div class="bg-white border border-slate-200 rounded px-3 py-1.5"><p class="text-[10px] text-slate-400 uppercase font-bold">Trans Count</p><p class="text-sm font-bold text-indigo-600">${item.transactionCount}</p></div>
+              <div class="bg-white border border-slate-200 rounded px-3 py-1.5"><p class="text-[10px] text-slate-400 uppercase font-bold">Time Std.</p><p class="text-sm font-bold text-slate-700">${item.timeStandard.toFixed(2)} hrs</p></div>
+            </div>
+          </div>
+          <div class="p-5 max-h-72 overflow-y-auto">
+            <p class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Staff Performing Task (${item.staffList.length})</p>
+            <ul class="list-none m-0 p-0">
+              ${listHtml}
+            </ul>
+          </div>
+          <div class="px-5 py-4 bg-slate-50 border-t border-slate-200 text-right">
+            <button onclick="document.getElementById('dirStaffModal').remove()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-5 py-2 rounded text-sm font-bold transition-colors">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+  }
+
+  function fetchApprovals() {
+    const tbody = document.getElementById('approvalsTableBody'); if(!tbody) return;
+    tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-slate-500">Scanning pipeline...</td></tr>`;
+    google.script.run.withSuccessHandler(renderApprovals).getPendingApprovals();
+  }
+
+  function renderApprovals(res) {
+    if (!res.success) return showError(res);
+    const data = res.data; const tbody = document.getElementById('approvalsTableBody');
+    if (data.length === 0) { tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-emerald-500 font-medium">Your pipeline is completely empty.</td></tr>`; return; }
+    
+    let html = '';
+    data.forEach(item => {
+      const nameDisplay = item.employeeName ? `<span class="font-bold text-slate-800">${item.employeeName}</span>` : `<span class="italic text-slate-400">Vacant</span>`;
+      let statusBadge = '';
+      if (item.status.includes('Pending')) statusBadge = `<span class="bg-amber-100 text-amber-800 text-xs font-bold px-2 py-1 rounded border border-amber-200">${item.status}</span>`;
+      else if (item.status === 'Approved') statusBadge = `<span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-1 rounded border border-emerald-200">Approved</span>`;
+      else if (item.status === 'Rejected') statusBadge = `<span class="bg-rose-100 text-rose-800 text-xs font-bold px-2 py-1 rounded border border-rose-200">Rejected</span>`;
+
+      const isPending = item.isPendingForMe;
+      const btnText = isPending ? 'Review' : 'View Details';
+      const btnStyle = isPending ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700';
+
+      html += `
+        <tr class="hover:bg-slate-50 transition-colors">
+          <td class="px-6 py-4"><div class="text-sm">${nameDisplay}</div><div class="text-xs text-indigo-600 font-semibold">${item.position}</div></td>
+          <td class="px-6 py-4 text-slate-600"><div class="text-xs uppercase font-bold text-slate-500">${item.division}</div><div class="text-sm">${item.department}</div></td>
+          <td class="px-6 py-4">${statusBadge}</td>
+          <td class="px-6 py-4 font-bold text-slate-800">${parseFloat(item.fte).toFixed(2)}</td>
+          <td class="px-6 py-4 text-right">
+            <button onclick="openApprovalReview('${item.position}', '${item.employeeName}', '${item.division}', '${item.group}', '${item.department}', '${item.section}', ${isPending})" class="${btnStyle} text-sm font-medium px-4 py-2 rounded transition-colors shadow-sm">${btnText}</button>
+          </td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+  }
+
+  function openApprovalReview(pos, emp, div, grp, dept, sec, isPending) {
+    activeApprovalPayload = { pos, empName: emp, div, grp, dept, sec };
+    document.getElementById('approvalModalContent').innerHTML = `<p class="text-center text-slate-500 text-sm mt-4">Loading workload details...</p>`;
+    document.getElementById('approvalModalContext').innerHTML = `<p class="text-center text-slate-500 text-sm mt-4">Scanning department context...</p>`;
+    
+    const actionSection = document.getElementById('approvalActionSection');
+    if (isPending) { actionSection.classList.remove('hidden'); document.getElementById('approvalRemarks').value = ''; } 
+    else { actionSection.classList.add('hidden'); }
+    
+    document.getElementById('approvalActionModal').classList.remove('hidden');
+    
+    google.script.run.withSuccessHandler(res => {
+      if(!res.success) return document.getElementById('approvalModalContent').innerHTML = `<p class="text-red-500">Error loading details.</p>`;
+      const data = res.data;
+      document.getElementById('approvalModalTitle').innerText = `${emp || 'Vacant'} - ${pos}`;
+      document.getElementById('approvalModalFTE').innerText = `${parseFloat(data[0].fte).toFixed(2)} FTE Requested`;
+      
+      let html = `<div class="space-y-4">`;
+      const grouped = {};
+      data.forEach(r => { if(!grouped[r.mainProcess]) grouped[r.mainProcess] = []; grouped[r.mainProcess].push(r); });
+      
+      for(const [mp, subs] of Object.entries(grouped)) {
+        html += `<div class="bg-white border border-slate-200 p-3 rounded shadow-sm"><h4 class="font-bold text-indigo-700 text-sm mb-2">${mp}</h4><ul class="space-y-1">`;
+        let totalHrs = 0;
+        subs.forEach(s => { totalHrs += Number(s.totalTime); html += `<li class="flex justify-between text-xs border-b border-slate-100 pb-1"><span class="text-slate-700">${s.subprocess}</span><span class="font-semibold text-slate-500">${s.totalTime} hrs</span></li>`; });
+        html += `</ul><div class="text-right mt-2 text-xs font-bold text-slate-500">Subtotal: ${totalHrs.toFixed(2)} hrs</div></div>`;
+      }
+      html += `</div>`;
+      document.getElementById('approvalModalContent').innerHTML = html;
+    }).getPositionData(pos, emp, div, grp, dept, sec);
+
+    google.script.run.withSuccessHandler(res => {
+      if(!res.success) return document.getElementById('approvalModalContext').innerHTML = `<p class="text-red-500">Context unavailable.</p>`;
+      const contextData = res.data;
+      if (Object.keys(contextData).length === 0) {
+        document.getElementById('approvalModalContext').innerHTML = `<div class="bg-emerald-50 border border-emerald-100 text-emerald-700 p-4 rounded text-sm text-center">No other approved workflows exist in this department yet.</div>`;
+        return;
+      }
+
+      let ctxHtml = `<div class="space-y-4">`;
+      for(const [empPos, mainProcs] of Object.entries(contextData)) {
+        ctxHtml += `<div class="bg-white border border-slate-200 p-3 rounded"><h4 class="font-bold text-slate-800 text-sm mb-2">${empPos}</h4>`;
+        for(const [mp, subs] of Object.entries(mainProcs)) {
+          ctxHtml += `<p class="text-xs font-semibold text-slate-500 mt-2">${mp}</p><ul class="list-disc pl-4 text-xs text-slate-600 mt-1">`;
+          subs.forEach(s => { ctxHtml += `<li>${s}</li>`; });
+          ctxHtml += `</ul>`;
+        }
+        ctxHtml += `</div>`;
+      }
+      ctxHtml += `</div>`;
+      document.getElementById('approvalModalContext').innerHTML = ctxHtml;
+    }).getDepartmentContext(div, grp, dept, pos, emp);
+  }
+
+  function closeApprovalModal() { document.getElementById('approvalActionModal').classList.add('hidden'); activeApprovalPayload = null; }
+
+  function submitApprovalAction(actionType) {
+    if (!activeApprovalPayload) return;
+    const remarks = document.getElementById('approvalRemarks').value;
+    if (actionType === 'Reject' && remarks.trim() === '') return showToast('Remarks are strictly required when rejecting a request.', 'error');
+    
+    const payloadToSubmit = { ...activeApprovalPayload, action: actionType, remarks: remarks };
+    closeApprovalModal(); showToast(`Processing ${actionType} action...`);
+    
+    google.script.run.withSuccessHandler(res => {
+      if(res.success) { directoryCache = null; showToast(res.message, 'success'); fetchApprovals(); fetchViewData(); }
+      else showToast(res.message, 'error');
+    }).updateApprovalStatus(payloadToSubmit);
+  }
+
+  function fetchOptimizationData() {
+    document.getElementById('opt-redistribution-container').innerHTML = `<p class="text-sm text-slate-500">Running AI algorithms...</p>`; document.getElementById('opt-efficiency-container').innerHTML = `<p class="text-sm text-slate-500">Running AI algorithms...</p>`;
+    const filters = { division: document.getElementById('opt-division').value, group: document.getElementById('opt-group').value, department: document.getElementById('opt-department').value, section: document.getElementById('opt-section').value };
+    google.script.run.withSuccessHandler(res => { if(res.success) renderOptimizationAnalysis(res); else showError(res); }).getOptimizationAnalysis(filters);
+  }
+
+  function renderOptimizationAnalysis(data) {
+    let redistHtml = '';
+    if (data.redistribution.length === 0) redistHtml = `<div class="p-4 bg-slate-50 border border-slate-200 rounded text-slate-600 text-sm">No vacant positions found to redistribute in this selection.</div>`;
+    else {
+      data.redistribution.forEach(item => {
+        redistHtml += `<div class="p-4 border border-indigo-200 bg-indigo-50/50 rounded-lg"><div class="flex justify-between items-center mb-2"><h4 class="font-bold text-slate-800">Vacant: ${item.vacantPosition}</h4><span class="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-1 rounded">Workload: ${item.workloadFTE} FTE</span></div><p class="text-xs text-slate-500 uppercase tracking-wide font-semibold mt-3 mb-1">Recommended Absorber:</p><div class="flex justify-between items-center bg-white p-3 rounded border border-slate-200"><div><p class="text-sm font-bold text-slate-800">${item.topCandidate}</p><p class="text-xs text-slate-500">${item.candidatePosition}</p></div><div class="text-right"><p class="text-xs text-emerald-600 font-bold tracking-wide uppercase">Available Capacity</p><p class="text-lg font-bold text-slate-800">${item.candidateCapacity.toFixed(2)} FTE</p></div></div></div>`;
+      });
+    }
+    document.getElementById('opt-redistribution-container').innerHTML = redistHtml;
+    let effHtml = '';
+    if (data.efficiency.length === 0) effHtml = `<div class="p-4 bg-slate-50 border border-slate-200 rounded text-slate-600 text-sm">No Non-Value Adding (NVA) tasks found to optimize.</div>`;
+    else {
+      data.efficiency.forEach(item => {
+        if(item.totalNVAHours > 0) {
+          const taskList = item.tasks.slice(0, 3).map(t => `<li class="truncate">- ${t}</li>`).join('');
+          effHtml += `<div class="p-4 border border-rose-200 bg-rose-50/30 rounded-lg"><div class="flex justify-between items-center mb-2"><h4 class="font-bold text-slate-800">${item.entity}</h4><span class="bg-rose-100 text-rose-700 text-xs font-bold px-2 py-1 rounded">Target: ${item.totalNVAHours.toFixed(2)} Hrs</span></div><p class="text-xs text-slate-500 uppercase tracking-wide font-semibold mt-3 mb-1">Top NVA Tasks to Eliminate/Automate:</p><ul class="text-sm text-slate-700 space-y-1">${taskList}</ul></div>`;
+        }
+      });
+    }
+    document.getElementById('opt-efficiency-container').innerHTML = effHtml || `<div class="p-4 bg-slate-50 border border-slate-200 rounded text-slate-600 text-sm">All selected work is VA or BVA.</div>`;
+  }
+
+  function fetchOverlapData() {
+    const tbody = document.getElementById('overlapDataTable'); tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-slate-500">Detecting overlaps...</td></tr>`;
+    const filters = { division: document.getElementById('o-division').value, group: document.getElementById('o-group').value, department: document.getElementById('o-department').value, section: document.getElementById('o-section').value };
+    google.script.run.withSuccessHandler(res => { if(res.success) { currentOverlapData = res.data; renderOverlapTable(res.data); } else showError(res); }).getOverlapAnalysis(filters);
+  }
+
+  function renderOverlapTable(data) {
+    const tbody = document.getElementById('overlapDataTable');
+    if (data.length === 0) { tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-emerald-500 font-medium">No redundant processes found!</td></tr>`; return; }
+    let html = '';
+    data.forEach((item, index) => {
+      const styleLevel = item.level === 'Main Process' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600';
+      const count = Object.keys(item.details).length;
+      html += `<tr class="hover:bg-slate-50 transition-colors border-l-4 ${item.level === 'Main Process' ? 'border-indigo-500' : 'border-slate-300'}"><td class="px-6 py-4 font-bold text-slate-800 uppercase">${item.process}</td><td class="px-6 py-4"><span class="px-2 py-1 rounded text-xs font-bold uppercase tracking-wider ${styleLevel}">${item.level}</span></td><td class="px-6 py-4 font-bold text-rose-500 text-center">${count}</td><td class="px-6 py-4 text-right"><button onclick="openModal(${index})" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded transition-colors">View Details</button></td></tr>`;
+    });
+    tbody.innerHTML = html;
+  }
+
+  function openModal(index) {
+    const data = currentOverlapData[index]; document.getElementById('modalTitle').innerText = data.process; let html = '';
+    for (const [position, time] of Object.entries(data.details)) { html += `<tr><td class="px-4 py-3 text-slate-700 font-medium">${position}</td><td class="px-4 py-3 text-right font-bold text-indigo-600">${time.toFixed(2)} hrs</td></tr>`; }
+    document.getElementById('modalTableBody').innerHTML = html; document.getElementById('overlapModal').classList.remove('hidden');
+  }
+  function closeModal() { document.getElementById('overlapModal').classList.add('hidden'); }
+
+  function generateReports() { google.script.run.withSuccessHandler(res => { if(res.success) renderCharts(res.data, res.reports); else showError(res); }).getSavedPositions({}); }
+
+  function renderCharts(tableData, reportsData) {
+    if (globalChartInstances.pie) globalChartInstances.pie.destroy(); const ctxPie = document.getElementById('valuePieChart').getContext('2d');
+    globalChartInstances.pie = new Chart(ctxPie, { type: 'doughnut', data: { labels: ['VA', 'NVA', 'BVA'], datasets: [{ data: [reportsData.va, reportsData.nva, reportsData.bva], backgroundColor: ['#10b981', '#ef4444', '#3b82f6'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false } });
+    
+    const validData = tableData.filter(d => d.approvalStatus === 'Approved');
+    const actualHeadcount = validData.filter(d => d.employeeName.trim() !== "").length; 
+    const totalFTE = validData.reduce((sum, item) => sum + (parseFloat(item.fte) || 0), 0);
+    
+    if (globalChartInstances.bar) globalChartInstances.bar.destroy(); const ctxBar = document.getElementById('fteBarChart').getContext('2d');
+    globalChartInstances.bar = new Chart(ctxBar, { type: 'bar', data: { labels: ['Status'], datasets: [{ label: 'Actual Headcount', data: [actualHeadcount], backgroundColor: '#6366f1' }, { label: 'Required FTE', data: [totalFTE], backgroundColor: '#10b981' }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } } });
+  }
+
+  // NEW: Updated to accept a 'mode' string instead of a boolean
+  function actionPosition(pos, empName, div, grp, dept, sec, mode) {
+    switchTab('entry'); showToast(`Loading data for ${pos}...`, 'success'); 
+    google.script.run.withSuccessHandler(res => { if(res.success) reconstructForm(res.data, mode); else showError(res); }).getPositionData(pos, empName, div, grp, dept, sec);
+  }
+
+  // NEW: Updated to handle 'edit', 'view', and 'clone' modes
+  function reconstructForm(data, mode) {
+    if(!data || data.length === 0) return;
+    const firstRow = data[0]; 
+    
+    if (mode === 'edit') {
+      isEditMode = true; isViewOnlyMode = false;
+      editingOriginalData = { position: firstRow.position, employeeName: firstRow.employeeName, division: firstRow.division, group: firstRow.group, department: firstRow.department, section: firstRow.section };
+    } else if (mode === 'clone') {
+      isEditMode = false; isViewOnlyMode = false; // Saves as brand new
+      editingOriginalData = null; 
+    } else if (mode === 'view') {
+      isEditMode = false; isViewOnlyMode = true;
+      editingOriginalData = null;
+    }
+
+    document.getElementById('position').value = firstRow.position || ""; 
+    document.getElementById('employeeName').value = mode === 'clone' ? "" : (firstRow.employeeName || ""); 
+    
+    document.getElementById('workLocation').value = firstRow.workLocation || "";
+    document.getElementById('empType').value = firstRow.empType || ""; 
+    if(document.getElementById('agencyName')) document.getElementById('agencyName').value = firstRow.agencyName || ""; 
+    document.getElementById('empStatus').value = firstRow.empStatus || "";
+    if (firstRow.startDate) { try { document.getElementById('startDate').value = new Date(firstRow.startDate).toISOString().split('T')[0]; } catch(e){} }
+    if (firstRow.endDate) { try { document.getElementById('endDate').value = new Date(firstRow.endDate).toISOString().split('T')[0]; } catch(e){} }
+    toggleEmpFields(); 
+    
+    document.getElementById('fwa').value = firstRow.fwa || ""; 
+    document.getElementById('division').value = firstRow.division || ""; 
+    
+    // --- SAFE CASCADING DROPDOWNS (Prevents silent crashes) ---
+    const divData = cachedOrgData[firstRow.division] || {};
+    updateDropdown('group', Object.keys(divData), 'Select Group'); 
+    document.getElementById('group').value = firstRow.group || "";
+    
+    const grpData = divData[firstRow.group] || {};
+    updateDropdown('department', Object.keys(grpData), 'Select Department'); 
+    document.getElementById('department').value = firstRow.department || "";
+    
+    const deptData = grpData[firstRow.department] || [];
+    updateDropdown('section', deptData, 'Select Section'); 
+    document.getElementById('section').value = firstRow.section || "";
+    // ----------------------------------------------------------
+
+    document.getElementById('kpi1').value = firstRow.kpi1 || ""; 
+    document.getElementById('kpi2').value = firstRow.kpi2 || ""; 
+    document.getElementById('kpi3').value = firstRow.kpi3 || ""; 
+    document.getElementById('kpi4').value = firstRow.kpi4 || ""; 
+    document.getElementById('kpi5').value = firstRow.kpi5 || "";
+
+    const container = document.getElementById('processesContainer'); 
+    container.innerHTML = ''; 
+    processCount = 0; 
+    const processesMap = {};
+    
+    data.forEach(row => { 
+      const mpName = row.mainProcess || "Default Process";
+      if(!processesMap[mpName]) processesMap[mpName] = { cycle: row.cycle || "DAILY", subprocesses: [] }; 
+      processesMap[mpName].subprocesses.push(row); 
+    });
+    
+    Object.keys(processesMap).forEach(mpName => { 
+      const pData = processesMap[mpName]; 
+      const pId = addMainProcess(mpName, pData.cycle); 
+      document.querySelector(`#${pId} .subprocesses-container`).innerHTML = ''; 
+      pData.subprocesses.forEach(sub => addSubprocess(pId, sub)); 
+    });
+    
+    calculateTotals(); 
+    
+    if (mode === 'view') applyViewModeUI(); 
+    else if (mode === 'edit') applyEditModeUI();
+    else if (mode === 'clone') applyCloneModeUI();
+  }
+
+  function goBackToView() {
+    isEditMode = false; isViewOnlyMode = false; editingOriginalData = null;
+    document.getElementById('editBadge').classList.add('hidden'); document.getElementById('viewBadge').classList.add('hidden');
+    document.getElementById('orgFieldsWrapper').classList.remove('view-mode-disabled'); document.getElementById('kpiFieldsWrapper').classList.remove('view-mode-disabled'); document.getElementById('processesContainer').classList.remove('view-mode-disabled');
+    document.getElementById('addMainBtn').classList.remove('hidden'); document.getElementById('standardFooterActions').classList.remove('hidden'); document.getElementById('viewFooterActions').classList.add('hidden');
+    document.getElementById('workloadForm').reset(); document.getElementById('processesContainer').innerHTML = ''; document.getElementById('globalTotalHours').innerText = '0.00'; document.getElementById('globalFTE').innerText = '0.00';
+    toggleEmpFields(); switchTab('view');
+  }
+
+  function applyViewModeUI() {
+    isViewOnlyMode = true; document.getElementById('orgFieldsWrapper').classList.add('view-mode-disabled'); document.getElementById('kpiFieldsWrapper').classList.add('view-mode-disabled'); document.getElementById('processesContainer').classList.add('view-mode-disabled');
+    document.getElementById('viewBadge').classList.remove('hidden'); document.getElementById('editBadge').classList.add('hidden');
+    document.getElementById('addMainBtn').classList.add('hidden'); document.querySelectorAll('.delete-btn').forEach(btn => btn.classList.add('hidden')); document.querySelectorAll('.add-sub-btn').forEach(btn => btn.classList.add('hidden'));
+    document.getElementById('standardFooterActions').classList.add('hidden'); document.getElementById('viewFooterActions').classList.remove('hidden');
+  }
+
+  function switchToEditMode() { isViewOnlyMode = false; applyEditModeUI(); showToast('Editing mode enabled.', 'success'); }
+
+  function applyEditModeUI() {
+    document.getElementById('orgFieldsWrapper').classList.remove('view-mode-disabled'); document.getElementById('kpiFieldsWrapper').classList.remove('view-mode-disabled'); document.getElementById('processesContainer').classList.remove('view-mode-disabled');
+    document.getElementById('viewBadge').classList.add('hidden'); document.getElementById('editBadge').classList.remove('hidden');
+    document.getElementById('addMainBtn').classList.remove('hidden'); document.querySelectorAll('.delete-btn').forEach(btn => btn.classList.remove('hidden')); document.querySelectorAll('.add-sub-btn').forEach(btn => btn.classList.remove('hidden'));
+    document.getElementById('standardFooterActions').classList.remove('hidden'); document.getElementById('viewFooterActions').classList.add('hidden');
+    const btn = document.getElementById('saveSubmitBtn'); btn.innerHTML = `Update Workload`; btn.classList.replace('bg-indigo-600', 'bg-amber-600'); btn.classList.replace('hover:bg-indigo-700', 'hover:bg-amber-700');
+  }
+
+  // NEW: UI Logic for Cloning
+  function applyCloneModeUI() {
+    document.getElementById('orgFieldsWrapper').classList.remove('view-mode-disabled'); document.getElementById('kpiFieldsWrapper').classList.remove('view-mode-disabled'); document.getElementById('processesContainer').classList.remove('view-mode-disabled');
+    document.getElementById('viewBadge').classList.add('hidden'); document.getElementById('editBadge').classList.add('hidden');
+    document.getElementById('addMainBtn').classList.remove('hidden'); document.querySelectorAll('.delete-btn').forEach(btn => btn.classList.remove('hidden')); document.querySelectorAll('.add-sub-btn').forEach(btn => btn.classList.remove('hidden'));
+    document.getElementById('standardFooterActions').classList.remove('hidden'); document.getElementById('viewFooterActions').classList.add('hidden');
+    const btn = document.getElementById('saveSubmitBtn'); btn.innerHTML = `Save Cloned Workload`; btn.classList.replace('bg-amber-600', 'bg-indigo-600'); btn.classList.replace('hover:bg-amber-700', 'hover:bg-indigo-700');
+    showToast('Data cloned successfully! Please enter the new Employee Name.', 'success');
+  }
+
+  function resetForm(silent = false) {
+    if(silent === true || confirm("Are you sure you want to clear the form? Unsaved data will be lost.")) {
+      isEditMode = false; isViewOnlyMode = false; editingOriginalData = null;
+      document.getElementById('editBadge').classList.add('hidden'); document.getElementById('viewBadge').classList.add('hidden');
+      document.getElementById('orgFieldsWrapper').classList.remove('view-mode-disabled'); document.getElementById('kpiFieldsWrapper').classList.remove('view-mode-disabled'); document.getElementById('processesContainer').classList.remove('view-mode-disabled');
+      document.getElementById('addMainBtn').classList.remove('hidden'); document.getElementById('standardFooterActions').classList.remove('hidden'); document.getElementById('viewFooterActions').classList.add('hidden');
+      const btn = document.getElementById('saveSubmitBtn'); btn.innerHTML = `Save Workload`; btn.classList.replace('bg-amber-600', 'bg-indigo-600'); btn.classList.replace('hover:bg-amber-700', 'hover:bg-indigo-700');
+      document.getElementById('workloadForm').reset(); document.getElementById('processesContainer').innerHTML = ''; document.getElementById('globalTotalHours').innerText = '0.00'; document.getElementById('globalFTE').innerText = '0.00';
+      updateDropdown('group', [], 'Select Group'); updateDropdown('department', [], 'Select Department'); updateDropdown('section', [], 'Select Section');
+      toggleEmpFields();
+    }
+  }
+
+  function addMainProcess(nameVal = "", cycleVal = "DAILY") {
+    processCount++; const id = `process-${processCount}`; const container = document.getElementById('processesContainer');
+    
+    // Safety check for main process names with quotes
+    const safeNameVal = nameVal ? nameVal.replace(/"/g, '&quot;') : "";
+    
+    const html = `<div id="${id}" class="process-card bg-slate-50 border border-slate-200 rounded-lg p-5 relative"><button type="button" onclick="removeElement('${id}')" class="delete-btn absolute top-4 right-4 text-slate-400 hover:text-red-500 transition-colors"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button><div class="flex gap-4 items-end mb-4 pr-10"><div class="flex-1"><label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Main Process Name</label><input type="text" class="main-process-name w-full px-3 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white" required placeholder="E.g. Production Planning" value="${safeNameVal}"></div><div class="bg-indigo-100 text-indigo-800 px-4 py-2 rounded flex items-center gap-4 text-sm border border-indigo-200"><div class="flex items-center gap-2 border-r border-indigo-300 pr-4"><span class="font-medium text-xs uppercase text-indigo-600">Cycle:</span><select onchange="cascadeMainCycle('${id}', this.value)" class="main-cycle bg-transparent font-bold text-indigo-800 outline-none cursor-pointer"><option value="DAILY" ${cycleVal==='DAILY'?'selected':''}>DAILY</option><option value="WEEKLY" ${cycleVal==='WEEKLY'?'selected':''}>WEEKLY</option><option value="MONTHLY" ${cycleVal==='MONTHLY'?'selected':''}>MONTHLY</option><option value="QUARTERLY" ${cycleVal==='QUARTERLY'?'selected':''}>QUARTERLY</option><option value="ANNUALLY" ${cycleVal==='ANNUALLY'?'selected':''}>ANNUALLY</option></select></div><div class="font-semibold px-4 border-r border-indigo-300">Trans: <span class="main-process-trans">0</span></div><div class="font-semibold">Total: <span class="main-process-total">0.00</span> hrs</div></div></div><div class="subprocesses-container space-y-3 mb-4"></div><button type="button" onclick="addSubprocess('${id}')" class="add-sub-btn text-sm text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1 transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg> Add Subprocess</button></div>`;
+    container.insertAdjacentHTML('beforeend', html); if (!safeNameVal) addSubprocess(id); return id;
+  }
+
+  function cascadeMainCycle(parentId, newCycle) { document.querySelectorAll(`#${parentId} .sub-cycle`).forEach(s => s.value = newCycle); calculateTotals(); }
+
+  function addSubprocess(parentId, subData = null) {
+    const container = document.querySelector(`#${parentId} .subprocesses-container`); const subId = `sub-${Math.random().toString(36).substr(2, 9)}`; const parentCycle = document.querySelector(`#${parentId} .main-cycle`).value;
+    
+    // SAFE FALLBACKS AND HTML ESCAPING
+    const task = subData ? (subData.subprocess || "").replace(/"/g, '&quot;') : ""; 
+    const va = subData ? (subData.vaNva || "VA") : "VA"; 
+    const time = subData ? (subData.timeStandard || 0) : ""; 
+    const cycle = subData ? (subData.cycle || parentCycle) : parentCycle; 
+    const trans = subData ? (subData.transactionCount || 1) : "1";
+    
+    const html = `<div id="${subId}" class="subprocess-row flex flex-wrap sm:flex-nowrap gap-3 items-end bg-white p-3 border border-slate-200 rounded relative group"><div class="flex-1 min-w-[200px]"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Task / Function</label><input type="text" class="sub-task w-full text-sm px-3 py-1.5 border border-slate-300 rounded outline-none" required value="${task}"></div><div class="w-24 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">VA/NVA/BVA</label><select class="sub-va w-full text-sm px-2 py-1.5 border border-slate-300 rounded outline-none" required><option value="VA" ${va==='VA'?'selected':''}>VA</option><option value="NVA" ${va==='NVA'?'selected':''}>NVA</option><option value="BVA" ${va==='BVA'?'selected':''}>BVA</option></select></div><div class="w-20 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Time (Hrs)</label><input type="number" step="0.01" min="0" class="sub-time w-full text-sm px-2 py-1.5 border border-slate-300 rounded outline-none" required value="${time}"></div><div class="w-32 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Cycle</label><select class="sub-cycle w-full text-sm px-2 py-1.5 border border-slate-300 rounded outline-none" required><option value="DAILY" ${cycle==='DAILY'?'selected':''}>DAILY</option><option value="WEEKLY" ${cycle==='WEEKLY'?'selected':''}>WEEKLY</option><option value="MONTHLY" ${cycle==='MONTHLY'?'selected':''}>MONTHLY</option><option value="QUARTERLY" ${cycle==='QUARTERLY'?'selected':''}>QUARTERLY</option><option value="ANNUALLY" ${cycle==='ANNUALLY'?'selected':''}>ANNUALLY</option></select></div><div class="w-20 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1 text-blue-600">Trans</label><input type="number" step="1" min="1" class="sub-trans w-full text-sm px-2 py-1.5 border border-blue-300 bg-blue-50 rounded outline-none" required value="${trans}"></div><div class="w-20 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Freq/Yr</label><input type="number" class="sub-freq w-full text-sm px-2 py-1.5 bg-slate-100 border border-slate-200 rounded outline-none" readonly></div><div class="w-24 shrink-0"><label class="block text-[10px] uppercase text-slate-500 font-semibold mb-1">Total (Hrs)</label><input type="number" class="sub-total w-full text-sm px-2 py-1.5 bg-indigo-50 text-indigo-700 font-semibold border border-indigo-100 rounded outline-none" readonly></div><button type="button" onclick="removeElement('${subId}')" class="delete-btn text-slate-300 hover:text-red-500 transition-colors pb-1.5 shrink-0"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button></div>`;
+    container.insertAdjacentHTML('beforeend', html);
+  }
+
+  function removeElement(id) { document.getElementById(id)?.remove(); calculateTotals(); }
+
+  function calculateTotals() {
+    const fwaVal = (document.getElementById('fwa').value || "").toUpperCase().trim();
+    let workingHoursYear = 0; let dailyFreq = 0;
+    if (fwaVal.includes("22")) { workingHoursYear = 2376; dailyFreq = 264; }
+    else if (fwaVal.includes("24")) { workingHoursYear = 2304; dailyFreq = 288; }
+    else if (fwaVal.includes("26")) { workingHoursYear = 2496; dailyFreq = 312; }
+    let globalTotalHours = 0;
+    document.querySelectorAll('.process-card').forEach(card => {
+      let mainTotal = 0; let mainTrans = 0; 
+      card.querySelectorAll('.subprocess-row').forEach(row => {
+        const timeStd = parseFloat(row.querySelector('.sub-time').value) || 0;
+        const cycle = (row.querySelector('.sub-cycle').value || "").toUpperCase().trim();
+        const transCount = parseFloat(row.querySelector('.sub-trans').value) || 1; 
+        const freqInput = row.querySelector('.sub-freq');
+        const totalInput = row.querySelector('.sub-total');
+        let freq = 0;
+        if (cycle.includes('DAILY')) freq = dailyFreq; else if (cycle.includes('WEEKLY')) freq = 52; else if (cycle.includes('MONTHLY')) freq = 12; else if (cycle.includes('QUARTERLY')) freq = 4; else if (cycle.includes('ANNUALLY')) freq = 1;
+        freqInput.value = freq; const totalAnnual = timeStd * freq; totalInput.value = totalAnnual.toFixed(2);
+        mainTotal += totalAnnual; mainTrans += transCount;
+      });
+      card.querySelector('.main-process-total').innerText = mainTotal.toFixed(2); card.querySelector('.main-process-trans').innerText = mainTrans; globalTotalHours += mainTotal;
+    });
+    document.getElementById('globalTotalHours').innerText = globalTotalHours.toFixed(2);
+    const globalFTE = workingHoursYear > 0 ? (globalTotalHours / workingHoursYear) : 0; document.getElementById('globalFTE').innerText = globalFTE.toFixed(2);
+  }
+
+  function handleFormSubmit(e) {
+    e.preventDefault(); if (isViewOnlyMode) return; calculateTotals(); 
+    const globalFTE = document.getElementById('globalFTE').innerText;
+    const baseData = {
+      position: document.getElementById('position').value, employeeName: document.getElementById('employeeName').value, workLocation: document.getElementById('workLocation').value,
+      empType: document.getElementById('empType').value, agencyName: document.getElementById('agencyName') ? document.getElementById('agencyName').value : "",
+      empStatus: document.getElementById('empStatus').value, startDate: document.getElementById('startDate') ? document.getElementById('startDate').value : "", endDate: document.getElementById('endDate') ? document.getElementById('endDate').value : "",
+      fwa: document.getElementById('fwa').value, division: document.getElementById('division').value, group: document.getElementById('group').value, department: document.getElementById('department').value, section: document.getElementById('section').value,
+      kpi1: document.getElementById('kpi1').value, kpi2: document.getElementById('kpi2').value || "", kpi3: document.getElementById('kpi3').value || "", kpi4: document.getElementById('kpi4').value || "", kpi5: document.getElementById('kpi5').value || ""
+    };
+    let payload = [];
+    document.querySelectorAll('.process-card').forEach(card => {
+      const mp = card.querySelector('.main-process-name').value;
+      card.querySelectorAll('.subprocess-row').forEach(row => { payload.push({ ...baseData, mainProcess: mp, subprocess: row.querySelector('.sub-task').value, vaNva: row.querySelector('.sub-va').value, timeStandard: Number(row.querySelector('.sub-time').value), cycle: row.querySelector('.sub-cycle').value, frequency: Number(row.querySelector('.sub-freq').value), transactionCount: Number(row.querySelector('.sub-trans').value), totalTime: Number(row.querySelector('.sub-total').value) }); });
+    });
+    if (payload.length === 0) return showToast('Please add at least one subprocess.', 'error');
+    showToast('Saving data, please wait...');
+    google.script.run.withSuccessHandler(res => { 
+      if (res.success) { 
+        directoryCache = null;
+        showToast(res.message, 'success'); 
+        resetForm(true);       
+        switchTab('view');     
+        fetchViewData();       
+      } else { 
+        showToast(res.message, 'error'); 
+      } 
+    }).withFailureHandler(err => showToast('System Error: ' + err.message, 'error')).saveWorkload(payload, globalFTE, isEditMode, editingOriginalData);
+  }
+</script>
