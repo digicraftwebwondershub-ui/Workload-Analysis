@@ -631,7 +631,22 @@
     document.getElementById('standardFooterActions').classList.add('hidden'); document.getElementById('viewFooterActions').classList.remove('hidden');
   }
 
-  function switchToEditMode() { isViewOnlyMode = false; applyEditModeUI(); showToast('Editing mode enabled.', 'success'); }
+  function switchToEditMode() {
+    isViewOnlyMode = false;
+    isEditMode = true;
+    if (!editingOriginalData) {
+      editingOriginalData = {
+        position: document.getElementById('position').value,
+        employeeName: document.getElementById('employeeName').value,
+        division: document.getElementById('division').value,
+        group: document.getElementById('group').value,
+        department: document.getElementById('department').value,
+        section: document.getElementById('section').value
+      };
+    }
+    applyEditModeUI();
+    showToast('Editing mode enabled.', 'success');
+  }
 
   function applyEditModeUI() {
     document.getElementById('orgFieldsWrapper').classList.remove('view-mode-disabled'); document.getElementById('kpiFieldsWrapper').classList.remove('view-mode-disabled'); document.getElementById('processesContainer').classList.remove('view-mode-disabled');
