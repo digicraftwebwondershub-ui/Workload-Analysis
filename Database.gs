@@ -440,27 +440,56 @@ function getOverlapAnalysis(filters) {
 
 function deleteWorkloadRecords(pos, empName, div, grp, dept, sec) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Workload');
+  if (!sheet) return;
   const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return;
+
+  const clean = (val) => String(val || "").trim().toLowerCase();
+
+  const targetPos = clean(pos);
+  const targetEmp = clean(empName);
+  const targetDiv = clean(div);
+  const targetGrp = clean(grp);
+  const targetDept = clean(dept);
+  const targetSec = clean(sec);
+
   let rowsToDelete = [];
   let currentBase = {};
 
   for (let i = 1; i < data.length; i++) { 
     const row = data[i];
-    const rowPos = String(row[0]).trim();
+    const rowPos = clean(row[0]);
     const rowFte = String(row[16]).trim();
+    const prevPos = clean(data[i-1][0]);
     
     let isFirstRow = false;
-    if (i === 1 || rowFte !== "" || (rowPos !== "" && rowPos !== currentBase.position) || (rowPos !== "" && String(data[i-1][0]).trim() === "")) isFirstRow = true;
+    if (i === 1) {
+      isFirstRow = true;
+    } else if (rowFte !== "") {
+      isFirstRow = true;
+    } else if (rowPos !== "" && rowPos !== currentBase.position) {
+      isFirstRow = true;
+    } else if (rowPos !== "" && prevPos === "") {
+      isFirstRow = true;
+    }
 
     if (isFirstRow) {
       currentBase = {
-        position: rowPos || currentBase.position, employeeName: row[17] ? String(row[17]).trim() : "",
-        division: String(row[3]).trim() || currentBase.division, group: String(row[4]).trim() || currentBase.group,
-        department: String(row[5]).trim() || currentBase.department, section: String(row[6]).trim() || currentBase.section
+        position: rowPos || currentBase.position,
+        employeeName: row[17] !== undefined ? clean(row[17]) : "",
+        division: clean(row[3]) || currentBase.division,
+        group: clean(row[4]) || currentBase.group,
+        department: clean(row[5]) || currentBase.department,
+        section: clean(row[6]) || currentBase.section
       };
     }
     
-    if (currentBase.position === pos && currentBase.employeeName === empName && currentBase.division === div && currentBase.group === grp && currentBase.department === dept && currentBase.section === sec) {
+    if (clean(currentBase.position) === targetPos &&
+        clean(currentBase.employeeName) === targetEmp &&
+        clean(currentBase.division) === targetDiv &&
+        clean(currentBase.group) === targetGrp &&
+        clean(currentBase.department) === targetDept &&
+        clean(currentBase.section) === targetSec) {
       rowsToDelete.push(i + 1); 
     }
   }
@@ -472,11 +501,15 @@ function saveWorkload(payload, positionFTE, isEdit, oldPosData) {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Workload');
     const user = getUserProfile();
     if (!sheet) return { success: false, message: "Error: 'Workload' sheet not found." };
-    
-    if (isEdit && oldPosData) {
+    if (!payload || payload.length === 0) return { success: false, message: "No subprocesses to save." };
+
+    // Clean up existing records for old position key if edited, and clean up for new position key to prevent duplicates
+    if (oldPosData) {
       deleteWorkloadRecords(oldPosData.position, oldPosData.employeeName, oldPosData.division, oldPosData.group, oldPosData.department, oldPosData.section);
     }
-    
+    const firstRow = payload[0];
+    deleteWorkloadRecords(firstRow.position, firstRow.employeeName, firstRow.division, firstRow.group, firstRow.department, firstRow.section);
+
     let newStatus = 'Pending Level 1'; 
     if (user.role === 'Admin') newStatus = 'Approved'; 
     else if (!user.l1Approver && user.l2Approver) newStatus = 'Pending Level 2'; 
