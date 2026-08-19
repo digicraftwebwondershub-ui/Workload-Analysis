@@ -247,21 +247,25 @@ function getSavedPositions(filters) {
 function getApprovedHeadcount(filters, user) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const refSheet = ss.getSheetByName('Reference Data');
-    if (!refSheet) return 0;
+    const orgSheet = ss.getSheetByName('OrgChart');
+    if (!orgSheet) return 0;
 
-    const data = refSheet.getDataRange().getValues();
+    const data = orgSheet.getDataRange().getValues();
     if (data.length <= 1) return 0;
 
     const headers = data[0].map(h => String(h || "").trim().toUpperCase());
 
     let hcCol = headers.findIndex(h => h.includes("APPROVED HC") || h.includes("APPROVED"));
-    if (hcCol === -1) hcCol = 2; // Default to Column C (0-indexed 2)
+    if (hcCol === -1) hcCol = 4; // Default to Column E (0-indexed 4)
 
     let divCol = headers.findIndex(h => h.includes("DIVISION"));
+    if (divCol === -1) divCol = 0;
     let grpCol = headers.findIndex(h => h.includes("GROUP"));
+    if (grpCol === -1) grpCol = 1;
     let deptCol = headers.findIndex(h => h.includes("DEPARTMENT"));
+    if (deptCol === -1) deptCol = 2;
     let secCol = headers.findIndex(h => h.includes("SECTION"));
+    if (secCol === -1) secCol = 3;
 
     let totalApproved = 0;
 
