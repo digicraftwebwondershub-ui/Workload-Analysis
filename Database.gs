@@ -239,8 +239,67 @@ function getSavedPositions(filters) {
     });
     
     const result = Object.values(positions).map(p => ({ ...p, mpCount: p.mainProcesses.size }));
-    return { success: true, data: result, reports: reportData };
+    const approvedHc = getApprovedHeadcount(filters, user);
+    return { success: true, data: result, reports: reportData, approvedHc: approvedHc };
   } catch (e) { return { success: false, message: e.message }; }
+}
+
+function getApprovedHeadcount(filters, user) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const orgSheet = ss.getSheetByName('OrgChart');
+    if (!orgSheet) return 0;
+
+    const data = orgSheet.getDataRange().getValues();
+    if (data.length <= 1) return 0;
+
+    const headers = data[0].map(h => String(h || "").trim().toUpperCase());
+    
+    let hcCol = headers.findIndex(h => h.includes("APPROVED HC") || h.includes("APPROVED"));
+    if (hcCol === -1) hcCol = 4; // Default to Column E (0-indexed 4)
+
+    let divCol = headers.findIndex(h => h.includes("DIVISION"));
+    if (divCol === -1) divCol = 0;
+    let grpCol = headers.findIndex(h => h.includes("GROUP"));
+    if (grpCol === -1) grpCol = 1;
+    let deptCol = headers.findIndex(h => h.includes("DEPARTMENT"));
+    if (deptCol === -1) deptCol = 2;
+    let secCol = headers.findIndex(h => h.includes("SECTION"));
+    if (secCol === -1) secCol = 3;
+
+    let totalApproved = 0;
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const hcVal = Number(row[hcCol]) || 0;
+      if (!hcVal) continue;
+
+      const rDiv = divCol !== -1 ? String(row[divCol] || "").trim() : "";
+      const rGrp = grpCol !== -1 ? String(row[grpCol] || "").trim() : "";
+      const rDept = deptCol !== -1 ? String(row[deptCol] || "").trim() : "";
+      const rSec = secCol !== -1 ? String(row[secCol] || "").trim() : "";
+
+      if (user && user.role !== 'Admin') {
+        if (rDiv && !isAllowedByScope(user.scope.division, rDiv)) continue;
+        if (rGrp && !isAllowedByScope(user.scope.group, rGrp)) continue;
+        if (rDept && !isAllowedByScope(user.scope.department, rDept)) continue;
+        if (rSec && !isAllowedByScope(user.scope.section, rSec)) continue;
+      }
+
+      if (filters) {
+        if (filters.division && rDiv && filters.division.toLowerCase() !== rDiv.toLowerCase()) continue;
+        if (filters.group && rGrp && filters.group.toLowerCase() !== rGrp.toLowerCase()) continue;
+        if (filters.department && rDept && filters.department.toLowerCase() !== rDept.toLowerCase()) continue;
+        if (filters.section && rSec && filters.section.toLowerCase() !== rSec.toLowerCase()) continue;
+      }
+
+      totalApproved += hcVal;
+    }
+
+    return totalApproved;
+  } catch (e) {
+    return 0;
+  }
 }
 
 function getPositionData(pos, empName, div, grp, dept, sec) {
